@@ -85,7 +85,7 @@ export default function Sidebar(props: { isOpen?: boolean; onClose?: () => void 
       </Show>
 
       <Show when={data()}>
-        <div style={{ position: "sticky", top: "77px", zIndex: 40 }}>
+        <div style={{ position: "sticky", top: "77px", "z-index": 40 }}>
           {/* TABS (Groups) */}
           <div class="sidebar-tabs" style={{ position: "static", border: "none" }}>
             <For each={groups()}>
@@ -103,8 +103,8 @@ export default function Sidebar(props: { isOpen?: boolean; onClose?: () => void 
           {/* SUB-TABS (Categories) */}
           <Show when={activeGroupId()}>
             {(groupId) => (
-              <div class="sidebar-tabs sub-tabs" style={{ position: "static", backgroundColor: "rgba(15, 23, 42, 0.98)", paddingTop: "0.25rem" }}>
-                <div style={{ width: "100%", fontSize: "0.6rem", textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--text-muted)", marginBottom: "0.25rem", paddingLeft: "0.25rem", display: "flex", alignItems: "center", gap: "0.25rem" }}>
+              <div class="sidebar-tabs sub-tabs" style={{ position: "static", "background-color": "rgba(15, 23, 42, 0.98)", "padding-top": "0.25rem" }}>
+                <div style={{ width: "100%", "font-size": "0.6rem", "text-transform": "uppercase", "letter-spacing": "0.05em", color: "var(--text-muted)", "margin-bottom": "0.25rem", "padding-left": "0.25rem", display: "flex", "align-items": "center", gap: "0.25rem" }}>
                   <i class="fas fa-level-down-alt"></i>
                   <span>Chuyên mục</span>
                 </div>
@@ -113,7 +113,7 @@ export default function Sidebar(props: { isOpen?: boolean; onClose?: () => void 
                     <button
                       class={`sidebar-tab sub-tab ${activeCategoryId() === category.id ? "active" : ""}`}
                       onClick={() => setActiveCategoryId(category.id)}
-                      style={{ fontSize: "0.7rem", padding: "0.25rem" }}
+                      style={{ "font-size": "0.7rem", padding: "0.25rem" }}
                     >
                       {category.name}
                     </button>
@@ -128,13 +128,13 @@ export default function Sidebar(props: { isOpen?: boolean; onClose?: () => void 
         <div class="sidebar-tree pt-2">
           <Show when={activeCategoryId()}>
             {(categoryId) => (
-              <div class="category-group" style={{ paddingTop: "0" }}>
+              <div class="category-group" style={{ "padding-top": "0" }}>
                 <div class="chapter-group">
                   <For each={getChapters(categoryId())}>
                     {(chapter) => {
                       return (
                         <div>
-                          <div class="chapter-title flex justify-between items-center" style={{ userSelect: "none" }}>
+                          <div class="chapter-title flex justify-between items-center" style={{ "user-select": "none" }}>
                             <div class="flex items-center gap-2">
                               <i class={`fas fa-folder-open chapter-icon`}></i>
                               {chapter.name}
