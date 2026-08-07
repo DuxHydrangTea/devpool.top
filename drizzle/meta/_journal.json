@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1786107553652,
+      "tag": "0000_green_bucky",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1786107705963,
+      "tag": "0001_seed_categories",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786108634834,
+      "tag": "0002_auto_increment",
+      "breakpoints": true
+    }
+  ]
+}
