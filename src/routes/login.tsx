@@ -36,7 +36,7 @@ const loginAction = action(async (formData: FormData) => {
     const isProd = process.env.NODE_ENV === "production";
     event.response.headers.append(
       "Set-Cookie", 
-      `admin_token=${token}; HttpOnly; Path=/; Max-Age=86400${isProd ? '; Secure' : ''}`
+      `admin_token=${token}; HttpOnly; Path=/; Max-Age=2592000${isProd ? '; Secure' : ''}`
     );
   }
 
