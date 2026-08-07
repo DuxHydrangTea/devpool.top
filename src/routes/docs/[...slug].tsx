@@ -4,10 +4,10 @@ import { query, createAsync, A } from "@solidjs/router";
 import { Title, Meta } from "@solidjs/meta";
 import { parseMarkdown } from "~/lib/markdown";
 import { db } from "~/lib/turso";
-import { articles as articlesSchema } from "~/db/schema";
+import { articles as articlesSchema, categories as categoriesSchema } from "~/db/schema";
 import { eq, lt, gt, asc, desc } from "drizzle-orm";
 import "highlight.js/styles/base16/dracula.min.css";
-import { usePageTitle } from "~/app";
+import { usePageTitle } from "~/contexts/TitleContext";
 import { createEffect, onCleanup } from "solid-js";
 
 const getArticleServer = query(async (slugId: string) => {
@@ -20,23 +20,38 @@ const getArticleServer = query(async (slugId: string) => {
     const data = results[0];
     const htmlContent = await parseMarkdown(data.contentMd || "");
 
-    const prevResult = await db.select({ title: articlesSchema.title, slug: articlesSchema.slug })
-      .from(articlesSchema)
-      .where(lt(articlesSchema.order, data.order))
-      .orderBy(desc(articlesSchema.order))
-      .limit(1);
+    const allCategories = await db.select().from(categoriesSchema).orderBy(asc(categoriesSchema.order));
+    const allArticles = await db.select().from(articlesSchema).orderBy(asc(articlesSchema.order));
 
-    const nextResult = await db.select({ title: articlesSchema.title, slug: articlesSchema.slug })
-      .from(articlesSchema)
-      .where(gt(articlesSchema.order, data.order))
-      .orderBy(asc(articlesSchema.order))
-      .limit(1);
+    const flatArticles: typeof allArticles = [];
+    const groups = allCategories.filter(c => c.type === "group");
+    for (const group of groups) {
+      const cats = allCategories.filter(c => c.type === "category" && c.parentId === group.id);
+      for (const cat of cats) {
+        const chaps = allCategories.filter(c => c.type === "chapter" && c.parentId === cat.id);
+        for (const chap of chaps) {
+          const arts = allArticles.filter(a => a.chapterId === chap.id);
+          flatArticles.push(...arts);
+        }
+      }
+    }
+
+    const currentIndex = flatArticles.findIndex(a => a.slug === slugId);
+    let prevResult = null;
+    let nextResult = null;
+
+    if (currentIndex > 0) {
+      prevResult = flatArticles[currentIndex - 1];
+    }
+    if (currentIndex !== -1 && currentIndex < flatArticles.length - 1) {
+      nextResult = flatArticles[currentIndex + 1];
+    }
 
     return {
       title: data.title,
       content: htmlContent,
-      prev: prevResult.length > 0 ? prevResult[0] : null,
-      next: nextResult.length > 0 ? nextResult[0] : null
+      prev: prevResult,
+      next: nextResult
     };
   }
 

@@ -1,16 +1,10 @@
 import { Router, useIsRouting } from "@solidjs/router";
 import { FileRoutes } from "@solidjs/start/router";
-import { Suspense, createSignal, Show, createContext, useContext } from "solid-js";
+import { Suspense, createSignal, Show } from "solid-js";
 import { MetaProvider } from "@solidjs/meta";
+import { TitleContext } from "~/contexts/TitleContext";
 import Sidebar from "~/components/Sidebar";
 import "./app.css";
-
-export const TitleContext = createContext<[() => string, (t: string) => void]>();
-export function usePageTitle() {
-  const ctx = useContext(TitleContext);
-  if (!ctx) throw new Error("usePageTitle must be used within TitleContext");
-  return ctx;
-}
 
 function GlobalLoader() {
   const isRouting = useIsRouting();
