@@ -55,6 +55,14 @@ export default function DocPage() {
     const data = article();
     if (data?.title) {
       setPageTitle(data.title);
+      
+      // Tự động cuộn lên đầu trang
+      const mainContent = document.querySelector('.main-content');
+      if (mainContent) {
+        mainContent.scrollTo({ top: 0, behavior: "smooth" });
+      } else {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
     }
   });
 

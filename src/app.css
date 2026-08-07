@@ -187,6 +187,10 @@ ol {
   padding: 1.5rem;
 }
 
+.mobile-only {
+  display: none !important;
+}
+
 /* 
   APP LAYOUT 
 */
@@ -900,6 +904,10 @@ textarea.form-input {
 }
 
 @media (max-width: 768px) {
+  .mobile-only {
+    display: block !important;
+  }
+
   .mobile-header {
     display: flex;
   }

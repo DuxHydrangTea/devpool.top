@@ -74,10 +74,27 @@ export default function Sidebar(props: { isOpen?: boolean; onClose?: () => void 
 
   return (
     <nav class={`sidebar ${props.isOpen ? 'open' : ''}`}>
-      <div class="sidebar-header">
+      <div class="sidebar-header" style={{ display: "flex", "justify-content": "space-between", "align-items": "center" }}>
         <A href="/" class="sidebar-brand">
           DEVPOOL.TOP
         </A>
+        <button 
+          onClick={() => {
+            if ('caches' in window) {
+              caches.keys().then(names => names.forEach(name => caches.delete(name)));
+            }
+            window.location.reload();
+          }}
+          title="Tải lại trang (Xóa cache)"
+          style={{ color: "var(--text-muted)", "font-size": "1rem", padding: "0.25rem", transition: "color 0.2s" }}
+          onMouseEnter={(e) => e.currentTarget.style.color = "var(--accent-primary)"}
+          onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-muted)"}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+            <path d="M21 3v5h-5" />
+          </svg>
+        </button>
       </div>
 
       <Show when={!data()}>
@@ -172,6 +189,18 @@ export default function Sidebar(props: { isOpen?: boolean; onClose?: () => void 
           </Show>
         </div>
       </Show>
+
+      {/* FOOTER ĐÓNG SIDEBAR TRÊN MOBILE */}
+      <div class="sidebar-footer mobile-only" style={{ "margin-top": "auto", "border-top": "1px solid var(--border-color)", padding: "1rem", "background-color": "var(--bg-primary)", position: "sticky", bottom: "0", "z-index": 40 }}>
+        <button 
+          onClick={() => {
+            if (props.onClose) props.onClose();
+          }}
+          style={{ width: "100%", padding: "0.75rem", "background-color": "var(--bg-secondary)", color: "var(--text-primary)", "border-radius": "0.375rem", display: "flex", "align-items": "center", "justify-content": "center", gap: "0.5rem", "font-weight": "600", "font-size": "0.875rem" }}
+        >
+          <i class="fas fa-times"></i> Đóng Menu
+        </button>
+      </div>
     </nav>
   );
 }
