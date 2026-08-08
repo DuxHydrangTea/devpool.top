@@ -1,11 +1,12 @@
 import { createSignal, For, Show } from "solid-js";
 import { Title } from "@solidjs/meta";
-import { A, action, query, useAction, createAsync, revalidate } from "@solidjs/router";
+import { A, action, query, useAction, createAsync, revalidate, useSearchParams } from "@solidjs/router";
 import { db } from "~/lib/turso";
 import { categories as categoriesSchema, articles as articlesSchema } from "~/db/schema";
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, sql } from "drizzle-orm";
 import { parseMarkdown } from "~/lib/markdown";
 import { requireAuth } from "~/lib/auth";
+import { articleCache } from "~/lib/cache";
 import { onMount, onCleanup } from "solid-js";
 import type EasyMDE from "easymde";
 import "easymde/dist/easymde.min.css";
@@ -39,18 +40,23 @@ const getCategoriesServer = query(async () => {
   }));
 }, "categories-list-arts");
 
-const getArticlesServer = query(async () => {
+const getArticlesServer = query(async (page: number, limit: number) => {
   "use server";
   await requireAuth();
+  
+  const offset = (page - 1) * limit;
+  const [{ count }] = await db.select({ count: sql`count(*)` }).from(articlesSchema);
+  
   const articles = await db.select({
     id: articlesSchema.id,
     title: articlesSchema.title,
     chapterId: articlesSchema.chapterId,
     order: articlesSchema.order,
-    contentMd: articlesSchema.contentMd,
-    slug: articlesSchema.slug
-  }).from(articlesSchema).orderBy(asc(articlesSchema.order));
-  return articles;
+    slug: articlesSchema.slug,
+    contentMd: articlesSchema.contentMd
+  }).from(articlesSchema).orderBy(asc(articlesSchema.order)).limit(limit).offset(offset);
+  
+  return { articles, total: Number(count) };
 }, "articles-list");
 
 function generateSlug(text: string) {
@@ -76,12 +82,18 @@ const addArticleServer = action(async (data: { title: string, content_md: string
 const deleteArticleServer = action(async (id: number) => {
   "use server";
   await requireAuth();
+  const target = await db.select().from(articlesSchema).where(eq(articlesSchema.id, id));
+  if (target.length > 0) articleCache.delete(target[0].slug);
   await db.delete(articlesSchema).where(eq(articlesSchema.id, id));
 });
 
 const updateArticleServer = action(async (data: { id: number, title: string, content_md: string, chapterId: number, order: number }) => {
   "use server";
   await requireAuth();
+  
+  const target = await db.select().from(articlesSchema).where(eq(articlesSchema.id, data.id));
+  if (target.length > 0) articleCache.delete(target[0].slug);
+
   await db.update(articlesSchema).set({
     title: data.title,
     contentMd: data.content_md,
@@ -95,8 +107,12 @@ const updateArticleServer = action(async (data: { id: number, title: string, con
 // COMPONENT
 // =======================
 export default function AdminArticles() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const page = () => parseInt(searchParams.page || "1", 10);
+  const limit = 15;
+
   const categories = createAsync(() => getCategoriesServer());
-  const articles = createAsync(() => getArticlesServer());
+  const articlesData = createAsync(() => getArticlesServer(page(), limit));
 
   const addArticle = useAction(addArticleServer);
   const deleteArticle = useAction(deleteArticleServer);
@@ -308,12 +324,12 @@ export default function AdminArticles() {
 
         {/* LIST ARTICLES */}
         <div class="card">
-          <Show when={!articles()}>
+          <Show when={!articlesData()}>
             <div class="pulse-text mb-4">Đang tải dữ liệu SQL...</div>
           </Show>
 
           <div class="article-list">
-            <For each={articles()}>
+            <For each={articlesData()?.articles || []}>
               {(article) => {
                 const chap = chapters().find(c => c.id === article.chapterId);
                 return (
@@ -334,6 +350,33 @@ export default function AdminArticles() {
               }}
             </For>
           </div>
+
+          <Show when={articlesData()}>
+            {(data) => {
+              const totalPages = Math.ceil(data().total / limit);
+              return (
+                <div class="flex justify-center items-center gap-4 mt-6">
+                  <button 
+                    disabled={page() <= 1}
+                    onClick={() => setSearchParams({ page: page() - 1 })}
+                    class="btn btn-secondary px-4 py-2"
+                  >
+                    &larr; Trước
+                  </button>
+                  <span class="text-sm text-gray-400">
+                    Trang {page()} / {totalPages} (Tổng {data().total})
+                  </span>
+                  <button 
+                    disabled={page() >= totalPages}
+                    onClick={() => setSearchParams({ page: page() + 1 })}
+                    class="btn btn-secondary px-4 py-2"
+                  >
+                    Sau &rarr;
+                  </button>
+                </div>
+              );
+            }}
+          </Show>
         </div>
 
       </div>

@@ -5,7 +5,7 @@ import { categories as categoriesSchema, articles as articlesSchema } from "~/db
 import { asc } from "drizzle-orm";
 
 interface Category { id: number; name: string; type: string; parentId: number | null; order: number; }
-interface Article { id: number; title: string; chapterId: number; order: number; }
+interface Article { id: number; title: string; chapterId: number; order: number; slug: string; }
 
 const getSidebarDataServer = query(async () => {
   "use server";
@@ -20,6 +20,43 @@ const getSidebarDataServer = query(async () => {
 
   return { categories, articles };
 }, "sidebar-data");
+
+const ChapterNode = (props: { chapter: Category, getChapters: (id: number) => Category[], getArticles: (id: number) => Article[], location: any, onClose?: () => void }) => {
+  return (
+    <div style={{"margin-bottom": "0.5rem"}}>
+      <div class="chapter-title flex justify-between items-center" style={{ "user-select": "none", "margin-bottom": "0.25rem" }}>
+        <div class="flex items-center gap-2">
+          <i class={`fas fa-folder-open chapter-icon`}></i>
+          {props.chapter.name}
+        </div>
+      </div>
+      <ul class="article-list-container" style={{ "margin-left": "0.5rem", "border-left": "1px solid var(--border-color)", "padding-left": "0.5rem" }}>
+        <For each={props.getChapters(props.chapter.id)}>
+          {(sub) => <ChapterNode chapter={sub} getChapters={props.getChapters} getArticles={props.getArticles} location={props.location} onClose={props.onClose} />}
+        </For>
+        <For each={props.getArticles(props.chapter.id)}>
+          {(article) => {
+            const path = `/docs/${article.slug}`;
+            const isActive = props.location.pathname === path;
+            return (
+              <li>
+                <A
+                  href={path}
+                  class={`article-link ${isActive ? "active" : ""}`}
+                  onClick={() => {
+                    if (props.onClose) props.onClose();
+                  }}
+                >
+                  {article.title}
+                </A>
+              </li>
+            );
+          }}
+        </For>
+      </ul>
+    </div>
+  );
+};
 
 export default function Sidebar(props: { isOpen?: boolean; onClose?: () => void }) {
   const data = createAsync(() => getSidebarDataServer());
@@ -41,13 +78,30 @@ export default function Sidebar(props: { isOpen?: boolean; onClose?: () => void 
       untrack(() => {
         const activeArticle = currentData.articles.find(a => `/docs/${a.slug}` === currentPath);
         if (activeArticle) {
-          const chapter = currentData.categories.find(c => c.id === activeArticle.chapterId);
-          if (chapter) {
-            const category = currentData.categories.find(c => c.id === chapter.parentId);
-            if (category && category.parentId) {
-              setActiveGroupId(category.parentId);
-              setActiveCategoryId(category.id);
+          let currentParent = currentData.categories.find(c => c.id === activeArticle.chapterId);
+          let categoryId = null;
+          let groupId = null;
+          
+          while (currentParent) {
+            if (currentParent.type === "category") {
+              categoryId = currentParent.id;
+              groupId = currentParent.parentId;
+              break;
+            } else if (currentParent.type === "group") {
+              groupId = currentParent.id;
+              break;
             }
+            // Traverse up
+            if (currentParent.parentId) {
+              currentParent = currentData.categories.find(c => c.id === currentParent!.parentId);
+            } else {
+              break;
+            }
+          }
+
+          if (groupId && categoryId) {
+            setActiveGroupId(groupId);
+            setActiveCategoryId(categoryId);
           }
         } else {
           if (!activeGroupId() && groups().length > 0) {
@@ -147,41 +201,33 @@ export default function Sidebar(props: { isOpen?: boolean; onClose?: () => void 
             {(categoryId) => (
               <div class="category-group" style={{ "padding-top": "0" }}>
                 <div class="chapter-group">
-                  <For each={getChapters(categoryId())}>
-                    {(chapter) => {
-                      return (
-                        <div>
-                          <div class="chapter-title flex justify-between items-center" style={{ "user-select": "none" }}>
-                            <div class="flex items-center gap-2">
-                              <i class={`fas fa-folder-open chapter-icon`}></i>
-                              {chapter.name}
-                            </div>
-                          </div>
+                  {/* Render các bài viết trực tiếp thuộc Category (không nằm trong Chapter nào) */}
+                  <ul class="article-list-container">
+                    <For each={getArticles(categoryId())}>
+                      {(article) => {
+                        const path = `/docs/${article.slug}`;
+                        const isActive = location.pathname === path;
+                        return (
+                          <li>
+                            <A
+                              href={path}
+                              class={`article-link ${isActive ? "active" : ""}`}
+                              onClick={() => {
+                                if (props.onClose) props.onClose();
+                              }}
+                            >
+                              <i class="far fa-file-alt" style={{ "margin-right": "0.5rem", "font-size": "0.8em", opacity: 0.7 }}></i>
+                              {article.title}
+                            </A>
+                          </li>
+                        );
+                      }}
+                    </For>
+                  </ul>
 
-                        <ul class="article-list-container">
-                          <For each={getArticles(chapter.id)}>
-                            {(article) => {
-                              const path = `/docs/${article.slug}`;
-                              const isActive = location.pathname === path;
-                              return (
-                                <li>
-                                  <A
-                                    href={path}
-                                    class={`article-link ${isActive ? "active" : ""}`}
-                                    onClick={() => {
-                                      if (props.onClose) props.onClose();
-                                    }}
-                                  >
-                                    {article.title}
-                                  </A>
-                                </li>
-                              );
-                            }}
-                          </For>
-                        </ul>
-                        </div>
-                      );
-                    }}
+                  {/* Render các thư mục con đệ quy */}
+                  <For each={getChapters(categoryId())}>
+                    {(chapter) => <ChapterNode chapter={chapter} getChapters={getChapters} getArticles={getArticles} location={location} onClose={props.onClose} />}
                   </For>
                 </div>
               </div>

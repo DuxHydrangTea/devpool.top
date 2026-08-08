@@ -23,3 +23,14 @@ export const users = sqliteTable('users', {
   username: text('username').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
 });
+
+export const tags = sqliteTable('tags', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  name: text('name').notNull().unique(),
+  slug: text('slug').notNull().unique(),
+});
+
+export const articleTags = sqliteTable('article_tags', {
+  articleId: integer('article_id').references(() => articles.id, { onDelete: 'cascade' }).notNull(),
+  tagId: integer('tag_id').references(() => tags.id, { onDelete: 'cascade' }).notNull(),
+});

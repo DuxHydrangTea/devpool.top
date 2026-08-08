@@ -9,10 +9,16 @@ import { eq, lt, gt, asc, desc } from "drizzle-orm";
 import "highlight.js/styles/base16/dracula.min.css";
 import { usePageTitle } from "~/contexts/TitleContext";
 import { createEffect, onCleanup } from "solid-js";
+import { articleCache } from "~/lib/cache";
 
 const getArticleServer = query(async (slugId: string) => {
   "use server";
   if (!slugId) return null;
+  
+  // Trả về luôn dữ liệu trong RAM nếu đã được cache
+  if (articleCache.has(slugId)) {
+    return articleCache.get(slugId);
+  }
 
   const results = await db.select().from(articlesSchema).where(eq(articlesSchema.slug, slugId));
 
@@ -47,12 +53,16 @@ const getArticleServer = query(async (slugId: string) => {
       nextResult = flatArticles[currentIndex + 1];
     }
 
-    return {
+    const result = {
       title: data.title,
       content: htmlContent,
       prev: prevResult,
       next: nextResult
     };
+    
+    // Lưu vào bộ nhớ đệm (Cache) trên Server
+    articleCache.set(slugId, result);
+    return result;
   }
 
   return {
