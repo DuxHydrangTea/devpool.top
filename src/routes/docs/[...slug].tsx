@@ -10,6 +10,7 @@ import "highlight.js/styles/base16/dracula.min.css";
 import { usePageTitle } from "~/contexts/TitleContext";
 import { createEffect, onCleanup } from "solid-js";
 import { articleCache } from "~/lib/cache";
+import "viewerjs/dist/viewer.css";
 
 const getArticleServer = query(async (slugId: string) => {
   "use server";
@@ -75,6 +76,7 @@ export default function DocPage() {
   const params = useParams();
   const article = createAsync(() => getArticleServer(params.slug || ""));
   const [, setPageTitle] = usePageTitle();
+  let viewerInstance: any = null;
 
   createEffect(() => {
     const data = article();
@@ -88,11 +90,54 @@ export default function DocPage() {
       } else {
         window.scrollTo({ top: 0, behavior: "smooth" });
       }
+      
+      // Cleanup previous viewer instance
+      if (viewerInstance) {
+        viewerInstance.destroy();
+        viewerInstance = null;
+      }
+      
+      // Initialize image zoom viewer after DOM update
+      setTimeout(async () => {
+        const Viewer = (await import('viewerjs')).default;
+        const proseContainer = document.querySelector('.prose');
+        if (proseContainer) {
+          const images = proseContainer.querySelectorAll('img');
+          if (images.length > 0) {
+            viewerInstance = new Viewer(proseContainer as HTMLElement, {
+              navbar: false, // Hide thumbnail navbar for cleaner UI
+              title: false,
+              toolbar: {
+                zoomIn: 4,
+                zoomOut: 4,
+                oneToOne: 4,
+                reset: 4,
+                prev: 0,
+                play: 0,
+                next: 0,
+                rotateLeft: 0,
+                rotateRight: 0,
+                flipHorizontal: 0,
+                flipVertical: 0,
+              },
+              // Thêm con trỏ chuột Kính lúp vào ảnh
+              ready() {
+                images.forEach(img => {
+                  (img as HTMLElement).style.cursor = 'zoom-in';
+                });
+              }
+            });
+          }
+        }
+      }, 100);
     }
   });
 
   onCleanup(() => {
     setPageTitle("DevPool");
+    if (viewerInstance) {
+      viewerInstance.destroy();
+    }
   });
 
   return (
