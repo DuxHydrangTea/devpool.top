@@ -17,6 +17,7 @@ interface Category {
   name: string;
   type: string;
   parentId: number | null;
+  slug: string;
 }
 
 interface Article {
@@ -36,27 +37,31 @@ const getCategoriesServer = query(async () => {
     id: c.id,
     name: c.name,
     type: c.type,
-    parentId: c.parentId
+    parentId: c.parentId,
+    slug: c.slug
   }));
 }, "categories-list-arts");
 
-const getArticlesServer = query(async (page: number, limit: number) => {
+const getArticlesServer = query(async (filterChapterId?: number) => {
   "use server";
   await requireAuth();
   
-  const offset = (page - 1) * limit;
-  const [{ count }] = await db.select({ count: sql`count(*)` }).from(articlesSchema);
-  
-  const articles = await db.select({
+  let q = db.select({
     id: articlesSchema.id,
     title: articlesSchema.title,
     chapterId: articlesSchema.chapterId,
     order: articlesSchema.order,
     slug: articlesSchema.slug,
     contentMd: articlesSchema.contentMd
-  }).from(articlesSchema).orderBy(asc(articlesSchema.order)).limit(limit).offset(offset);
+  }).from(articlesSchema);
   
-  return { articles, total: Number(count) };
+  if (filterChapterId) {
+    q = q.where(eq(articlesSchema.chapterId, filterChapterId));
+  }
+  
+  const articles = await q.orderBy(asc(articlesSchema.order));
+  
+  return { articles, total: articles.length };
 }, "articles-list");
 
 function generateSlug(text: string) {
@@ -116,11 +121,10 @@ const clearAllCacheServer = action(async () => {
 // =======================
 export default function AdminArticles() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const page = () => parseInt(searchParams.page || "1", 10);
-  const limit = 15;
+  const filterChapterId = () => searchParams.chapterId ? parseInt(searchParams.chapterId, 10) : undefined;
 
   const categories = createAsync(() => getCategoriesServer());
-  const articlesData = createAsync(() => getArticlesServer(page(), limit));
+  const articlesData = createAsync(() => getArticlesServer(filterChapterId()));
 
   const addArticle = useAction(addArticleServer);
   const deleteArticle = useAction(deleteArticleServer);
@@ -345,59 +349,74 @@ export default function AdminArticles() {
 
         {/* LIST ARTICLES */}
         <div class="card">
+          <div class="flex justify-between items-center mb-6">
+            <h2 class="card-title m-0">Danh sách Bài Viết</h2>
+            <select
+              class="form-input"
+              style={{ width: "250px" }}
+              value={filterChapterId() || ""}
+              onChange={(e) => setSearchParams({ chapterId: e.target.value || undefined })}
+            >
+              <option value="">-- Tất cả Chương --</option>
+              <For each={categories()?.filter(c => c.type === "category") || []}>
+                {(cat) => {
+                  const parentGroup = categories()?.find(g => g.id === cat.parentId);
+                  const catChapters = chapters().filter(ch => ch.parentId === cat.id);
+                  if (catChapters.length === 0) return null;
+                  return (
+                    <optgroup label={`${parentGroup?.name || 'Mục'} ➔ ${cat.name}`}>
+                      <For each={catChapters}>
+                        {(chap) => <option value={chap.id}>{chap.name}</option>}
+                      </For>
+                    </optgroup>
+                  );
+                }}
+              </For>
+            </select>
+          </div>
+
           <Show when={!articlesData()}>
             <div class="pulse-text mb-4">Đang tải dữ liệu SQL...</div>
           </Show>
 
           <div class="article-list">
-            <For each={articlesData()?.articles || []}>
-              {(article) => {
-                const chap = chapters().find(c => c.id === article.chapterId);
+            <For each={chapters()}>
+              {(chap) => {
+                const chapArticles = articlesData()?.articles?.filter(a => a.chapterId === chap.id) || [];
+                if (chapArticles.length === 0) return null;
+                
+                const parentCat = categories()?.find(c => c.id === chap.parentId);
+                const parentGroup = categories()?.find(g => g.id === parentCat?.parentId);
+
                 return (
-                  <div class="article-item">
-                    <div class="flex justify-between">
-                      <div>
-                        <h3 class="article-item-title">[{article.order}] {article.title}</h3>
-                        <div class="article-item-path">/docs/{article.slug || article.id}</div>
-                      </div>
-                      <div class="flex gap-2 items-center">
-                        <A href={`/docs/${article.slug || article.id}`} target="_blank" class="badge-info text-center flex-1">Xem</A>
-                        <button onClick={() => handleEdit(article)} class="badge-info text-center flex-1">Sửa</button>
-                        <button onClick={() => handleDelete(article.id + "")} class="badge-danger text-center flex-1">Xóa</button>
-                      </div>
+                  <div class="mb-6">
+                    <h4 class="text-md font-bold mb-3 pb-2 border-b border-gray-700" style={{ color: "var(--vivid-pink)" }}>
+                      {parentGroup?.name} &rarr; {parentCat?.name} &rarr; {chap.name}
+                    </h4>
+                    <div class="flex flex-col gap-2">
+                      <For each={chapArticles}>
+                        {(article) => (
+                          <div class="article-item" style={{ margin: "0" }}>
+                            <div class="flex justify-between">
+                              <div>
+                                <h3 class="article-item-title">[{article.order}] {article.title}</h3>
+                                <div class="article-item-path">/docs/{parentCat?.slug ? `${parentCat.slug}/` : ''}{article.slug || article.id}</div>
+                              </div>
+                              <div class="flex gap-2 items-center">
+                                <A href={`/docs/${parentCat?.slug ? `${parentCat.slug}/` : ''}${article.slug || article.id}`} target="_blank" class="badge-info text-center flex-1">Xem</A>
+                                <button onClick={() => handleEdit(article)} class="badge-info text-center flex-1">Sửa</button>
+                                <button onClick={() => handleDelete(article.id + "")} class="badge-danger text-center flex-1">Xóa</button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </For>
                     </div>
                   </div>
                 )
               }}
             </For>
           </div>
-
-          <Show when={articlesData()}>
-            {(data) => {
-              const totalPages = Math.ceil(data().total / limit);
-              return (
-                <div class="flex justify-center items-center gap-4 mt-6">
-                  <button 
-                    disabled={page() <= 1}
-                    onClick={() => setSearchParams({ page: page() - 1 })}
-                    class="btn btn-secondary px-4 py-2"
-                  >
-                    &larr; Trước
-                  </button>
-                  <span class="text-sm text-gray-400">
-                    Trang {page()} / {totalPages} (Tổng {data().total})
-                  </span>
-                  <button 
-                    disabled={page() >= totalPages}
-                    onClick={() => setSearchParams({ page: page() + 1 })}
-                    class="btn btn-secondary px-4 py-2"
-                  >
-                    Sau &rarr;
-                  </button>
-                </div>
-              );
-            }}
-          </Show>
         </div>
 
       </div>

@@ -55,7 +55,7 @@ function MainLayout(props: { children: any }) {
     let categoryId: number | null = null;
 
     if (currentData) {
-      const activeArticle = currentData.articles.find(a => `/docs/${a.slug}` === currentPath);
+      const activeArticle = currentData.articles.find(a => currentPath.endsWith(`/${a.slug}`));
       if (activeArticle) {
         let currentParent = currentData.categories.find(c => c.id === activeArticle.chapterId);
         

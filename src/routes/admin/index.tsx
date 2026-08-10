@@ -14,6 +14,7 @@ export interface Category {
   type: CategoryType;
   parentId: number | null;
   order: number;
+  slug: string;
 }
 
 // =======================
@@ -28,7 +29,8 @@ const getCategoriesServer = query(async () => {
     name: c.name,
     type: c.type as CategoryType,
     parentId: c.parentId,
-    order: c.order
+    order: c.order,
+    slug: c.slug
   }));
 }, "categories-list");
 

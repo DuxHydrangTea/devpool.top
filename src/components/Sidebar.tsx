@@ -1,11 +1,11 @@
 import { For, Show } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
 
-export interface Category { id: number; name: string; type: string; parentId: number | null; order: number; }
+export interface Category { id: number; name: string; type: string; parentId: number | null; order: number; slug: string; }
 export interface Article { id: number; title: string; chapterId: number; order: number; slug: string; }
 export interface SidebarData { categories: Category[]; articles: Article[]; }
 
-const ChapterNode = (props: { chapter: Category, getChapters: (id: number) => Category[], getArticles: (id: number) => Article[], location: any, onClose?: () => void }) => {
+const ChapterNode = (props: { chapter: Category, getChapters: (id: number) => Category[], getArticles: (id: number) => Article[], location: any, onClose?: () => void, categorySlug?: string }) => {
   return (
     <div style={{"margin-bottom": "0.5rem"}}>
       <div class="chapter-title flex justify-between items-center" style={{ "user-select": "none", "margin-bottom": "0.25rem" }}>
@@ -16,12 +16,12 @@ const ChapterNode = (props: { chapter: Category, getChapters: (id: number) => Ca
       </div>
       <ul class="article-list-container" style={{ "margin-left": "0.5rem", "border-left": "1px solid var(--border-color)", "padding-left": "0.5rem" }}>
         <For each={props.getChapters(props.chapter.id)}>
-          {(sub) => <ChapterNode chapter={sub} getChapters={props.getChapters} getArticles={props.getArticles} location={props.location} onClose={props.onClose} />}
+          {(sub) => <ChapterNode chapter={sub} getChapters={props.getChapters} getArticles={props.getArticles} location={props.location} onClose={props.onClose} categorySlug={props.categorySlug} />}
         </For>
         <For each={props.getArticles(props.chapter.id)}>
           {(article) => {
-            const path = `/docs/${article.slug}`;
-            const isActive = props.location.pathname === path;
+            const path = props.categorySlug ? `/docs/${props.categorySlug}/${article.slug}` : `/docs/${article.slug}`;
+            const isActive = props.location.pathname === path || props.location.pathname.endsWith(`/${article.slug}`);
             return (
               <li>
                 <A
@@ -117,8 +117,9 @@ export default function Sidebar(props: {
                   <ul class="article-list-container">
                     <For each={getArticles(categoryId())}>
                       {(article) => {
-                        const path = `/docs/${article.slug}`;
-                        const isActive = location.pathname === path;
+                        const catSlug = props.data?.categories.find(c => c.id === categoryId())?.slug;
+                        const path = catSlug ? `/docs/${catSlug}/${article.slug}` : `/docs/${article.slug}`;
+                        const isActive = location.pathname === path || location.pathname.endsWith(`/${article.slug}`);
                         return (
                           <li>
                             <A
@@ -139,7 +140,7 @@ export default function Sidebar(props: {
 
                   {/* Render các thư mục con đệ quy */}
                   <For each={getChapters(categoryId())}>
-                    {(chapter) => <ChapterNode chapter={chapter} getChapters={getChapters} getArticles={getArticles} location={location} onClose={props.onClose} />}
+                    {(chapter) => <ChapterNode chapter={chapter} getChapters={getChapters} getArticles={getArticles} location={location} onClose={props.onClose} categorySlug={props.data?.categories.find(c => c.id === categoryId())?.slug} />}
                   </For>
                 </div>
               </div>

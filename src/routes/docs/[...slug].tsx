@@ -16,12 +16,16 @@ const getArticleServer = query(async (slugId: string) => {
   "use server";
   if (!slugId) return null;
   
+  // fullSlug có thể chứa category-slug/article-slug
+  const slugParts = slugId.split('/');
+  const articleSlug = slugParts[slugParts.length - 1];
+  
   // Trả về luôn dữ liệu trong RAM nếu đã được cache
-  if (articleCache.has(slugId)) {
-    return articleCache.get(slugId);
+  if (articleCache.has(articleSlug)) {
+    return articleCache.get(articleSlug);
   }
 
-  const results = await db.select().from(articlesSchema).where(eq(articlesSchema.slug, slugId));
+  const results = await db.select().from(articlesSchema).where(eq(articlesSchema.slug, articleSlug));
 
   if (results.length > 0) {
     const data = results[0];
@@ -54,15 +58,26 @@ const getArticleServer = query(async (slugId: string) => {
       nextResult = flatArticles[currentIndex + 1];
     }
 
+    const getArticlePath = (article: typeof data) => {
+      const chapter = allCategories.find(c => c.id === article.chapterId);
+      let cat = null;
+      if (chapter && chapter.type === "chapter") {
+         cat = allCategories.find(c => c.id === chapter.parentId);
+      } else if (chapter && chapter.type === "category") {
+         cat = chapter;
+      }
+      return cat && cat.slug ? `${cat.slug}/${article.slug}` : article.slug;
+    };
+
     const result = {
       title: data.title,
       content: htmlContent,
-      prev: prevResult,
-      next: nextResult
+      prev: prevResult ? { title: prevResult.title, slug: getArticlePath(prevResult) } : null,
+      next: nextResult ? { title: nextResult.title, slug: getArticlePath(nextResult) } : null
     };
     
-    // Lưu vào bộ nhớ đệm (Cache) trên Server
-    articleCache.set(slugId, result);
+    // Lưu vào bộ nhớ đệm (Cache) trên Server bằng articleSlug để đảm bảo ID duy nhất
+    articleCache.set(articleSlug, result);
     return result;
   }
 
