@@ -40,67 +40,90 @@ function MainLayout(props: { children: any }) {
   const [pageTitle, setPageTitle] = createSignal("DevPool");
   const data = createAsync(() => getSidebarDataServer());
   
-  const [activeGroupId, setActiveGroupId] = createSignal<number | null>(null);
-  const [activeCategoryId, setActiveCategoryId] = createSignal<number | null>(null);
+  const [selectedGroupId, setSelectedGroupId] = createSignal<number | null>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = createSignal<number | null>(null);
 
   const location = useLocation();
 
   const groups = () => data()?.categories.filter(c => c.type === "group") || [];
 
-  // Effect 1: Sync active tabs with the current URL route
-  createEffect(() => {
+  // Compute active IDs synchronously based on current URL and data
+  const derivedActiveIds = () => {
+    const currentData = data();
     const currentPath = location.pathname;
-    const currentData = data();
+    let groupId: number | null = null;
+    let categoryId: number | null = null;
+
     if (currentData) {
-      untrack(() => {
-        const activeArticle = currentData.articles.find(a => `/docs/${a.slug}` === currentPath);
-        if (activeArticle) {
-          let currentParent = currentData.categories.find(c => c.id === activeArticle.chapterId);
-          let categoryId = null;
-          let groupId = null;
-          
-          while (currentParent) {
-            if (currentParent.type === "category") {
-              categoryId = currentParent.id;
-              groupId = currentParent.parentId;
-              break;
-            } else if (currentParent.type === "group") {
-              groupId = currentParent.id;
-              break;
-            }
-            if (currentParent.parentId) {
-              currentParent = currentData.categories.find(c => c.id === currentParent!.parentId);
-            } else {
-              break;
-            }
+      const activeArticle = currentData.articles.find(a => `/docs/${a.slug}` === currentPath);
+      if (activeArticle) {
+        let currentParent = currentData.categories.find(c => c.id === activeArticle.chapterId);
+        
+        while (currentParent) {
+          if (currentParent.type === "category") {
+            categoryId = currentParent.id;
+            groupId = currentParent.parentId;
+            break;
+          } else if (currentParent.type === "group") {
+            groupId = currentParent.id;
+            break;
           }
-
-          if (groupId && categoryId) {
-            setActiveGroupId(groupId);
-            setActiveCategoryId(categoryId);
-          }
-        } else {
-          if (!activeGroupId() && groups().length > 0) {
-            setActiveGroupId(groups()[0].id);
+          if (currentParent.parentId) {
+            currentParent = currentData.categories.find(c => c.id === currentParent!.parentId);
+          } else {
+            break;
           }
         }
-      });
+      }
     }
-  });
+    return { groupId, categoryId };
+  };
 
-  // Effect 2: Auto-select the first Category when Group Tab changes
-  createEffect(() => {
-    const groupId = activeGroupId();
+  // Final active Group ID
+  const activeGroupId = () => {
+    if (selectedGroupId() !== null) return selectedGroupId()!;
+    const derived = derivedActiveIds().groupId;
+    if (derived !== null) return derived;
+    return groups().length > 0 ? groups()[0].id : null;
+  };
+
+  // Final active Category ID
+  const activeCategoryId = () => {
+    const currentGroupId = activeGroupId();
+    if (!currentGroupId) return null;
     const currentData = data();
-    if (groupId && currentData) {
-      untrack(() => {
-        const cats = currentData.categories.filter(c => c.type === "category" && c.parentId === groupId);
-        if (cats.length > 0 && !cats.find(c => c.id === activeCategoryId())) {
-          setActiveCategoryId(cats[0].id);
-        }
-      });
+
+    // 1. If user selected a category, check if it belongs to the active group
+    if (selectedCategoryId() !== null && currentData) {
+      const cat = currentData.categories.find(c => c.id === selectedCategoryId());
+      if (cat && cat.parentId === currentGroupId) {
+        return selectedCategoryId()!;
+      }
     }
-  });
+    
+    // 2. Fallback to derived category from URL (if it belongs to active group)
+    const derived = derivedActiveIds();
+    if (derived.groupId === currentGroupId && derived.categoryId) {
+      return derived.categoryId;
+    }
+    
+    // 3. Fallback to the first category in the active group
+    if (currentData) {
+      const cats = currentData.categories.filter(c => c.type === "category" && c.parentId === currentGroupId);
+      if (cats.length > 0) return cats[0].id;
+    }
+    
+    return null;
+  };
+
+  const setActiveGroupId = (id: number) => {
+    setSelectedGroupId(id);
+    setSelectedCategoryId(null); // Reset category selection when group changes
+  };
+
+  const setActiveCategoryId = (id: number) => {
+    setSelectedCategoryId(id);
+  };
 
   return (
     <MetaProvider>
@@ -108,55 +131,57 @@ function MainLayout(props: { children: any }) {
         <GlobalLoader />
         
         <div class="app-container">
-          <TopNav 
-            groups={groups()} 
-            activeGroupId={activeGroupId()} 
-            setActiveGroupId={setActiveGroupId}
-            pageTitle={pageTitle()}
-          />
-          
-          <div class="main-wrapper">
-            <div 
-              class={`sidebar-overlay ${isSidebarOpen() ? 'show' : ''}`}
-              onClick={() => setSidebarOpen(false)}
-            ></div>
-
-            <Sidebar 
-              isOpen={isSidebarOpen()} 
-              onClose={() => setSidebarOpen(false)}
-              data={data()}
-              activeGroupId={activeGroupId()}
+          <Suspense>
+            <TopNav 
+              groups={groups()} 
+              activeGroupId={activeGroupId()} 
               setActiveGroupId={setActiveGroupId}
-              activeCategoryId={activeCategoryId()}
-              setActiveCategoryId={setActiveCategoryId}
+              pageTitle={pageTitle()}
             />
             
-            <main class="main-content">
-              <Suspense>{props.children}</Suspense>
-            </main>
-          </div>
+            <div class="main-wrapper">
+              <div 
+                class={`sidebar-overlay ${isSidebarOpen() ? 'show' : ''}`}
+                onClick={() => setSidebarOpen(false)}
+              ></div>
 
-          <div class="mobile-header">
-            <button class="hamburger-btn" onClick={() => setSidebarOpen(true)}>
-              ☰
-            </button>
-            <div class="mobile-brand">{pageTitle()}</div>
-            <button 
-              onClick={() => {
-                if ('caches' in window) {
-                  caches.keys().then(names => names.forEach(n => caches.delete(n)));
-                }
-                window.location.reload();
-              }}
-              title="Tải lại trang (Xóa cache)"
-              style={{ color: "var(--text-muted)", "font-size": "1.1rem", padding: "0.25rem", display: "flex", "align-items": "center", "justify-content": "center" }}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-                <path d="M21 3v5h-5" />
-              </svg>
-            </button>
-          </div>
+              <Sidebar 
+                isOpen={isSidebarOpen()} 
+                onClose={() => setSidebarOpen(false)}
+                data={data()}
+                activeGroupId={activeGroupId()}
+                setActiveGroupId={setActiveGroupId}
+                activeCategoryId={activeCategoryId()}
+                setActiveCategoryId={setActiveCategoryId}
+              />
+              
+              <main class="main-content">
+                {props.children}
+              </main>
+            </div>
+
+            <div class="mobile-header">
+              <button class="hamburger-btn" onClick={() => setSidebarOpen(true)}>
+                ☰
+              </button>
+              <div class="mobile-brand">{pageTitle()}</div>
+              <button 
+                onClick={() => {
+                  if ('caches' in window) {
+                    caches.keys().then(names => names.forEach(n => caches.delete(n)));
+                  }
+                  window.location.reload();
+                }}
+                title="Tải lại trang (Xóa cache)"
+                style={{ color: "var(--text-muted)", "font-size": "1.1rem", padding: "0.25rem", display: "flex", "align-items": "center", "justify-content": "center" }}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                  <path d="M21 3v5h-5" />
+                </svg>
+              </button>
+            </div>
+          </Suspense>
         </div>
       </TitleContext.Provider>
     </MetaProvider>

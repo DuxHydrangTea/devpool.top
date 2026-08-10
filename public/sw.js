@@ -30,6 +30,7 @@ self.addEventListener('fetch', (event) => {
   if (
     url.pathname.startsWith('/api') || 
     url.pathname.startsWith('/admin') ||
+    url.pathname.startsWith('/_server') || 
     url.pathname.startsWith('/@') || 
     url.pathname.includes('node_modules') ||
     url.search.includes('import') ||
@@ -49,8 +50,9 @@ self.addEventListener('fetch', (event) => {
           });
         }
         return networkResponse;
-      }).catch(() => {
-        // Fallback or ignore
+      }).catch((error) => {
+        console.error('Fetch error:', error);
+        return new Response('Network error', { status: 408 });
       });
 
       return cachedResponse || fetchPromise;

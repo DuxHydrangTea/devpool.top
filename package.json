@@ -5,7 +5,8 @@
     "dev": "vite dev",
     "build": "vite build",
     "start": "node .output/server/index.mjs",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "fix-code-blocks": "tsx scripts/fix_code_blocks_deepseek.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",
@@ -14,6 +15,7 @@
     "@solidjs/start": "^2.0.0",
     "@types/marked": "^5.0.2",
     "bcryptjs": "^3.0.3",
+    "cheerio": "^1.2.0",
     "drizzle-orm": "^0.45.2",
     "easymde": "^2.21.0",
     "highlight.js": "^11.11.1",
@@ -22,7 +24,9 @@
     "marked-highlight": "^2.2.4",
     "medium-zoom": "^1.1.0",
     "nitro": "^3.0.260610-beta",
+    "p-limit": "^7.3.1",
     "solid-js": "^1.9.14",
+    "turndown": "^7.2.4",
     "viewerjs": "^1.11.8",
     "vite": "^8.0.0"
   },

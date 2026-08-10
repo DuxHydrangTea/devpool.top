@@ -103,6 +103,14 @@ const updateArticleServer = action(async (data: { id: number, title: string, con
   }).where(eq(articlesSchema.id, data.id));
 });
 
+const clearAllCacheServer = action(async () => {
+  "use server";
+  await requireAuth();
+  const count = articleCache.size;
+  articleCache.clear();
+  return count;
+});
+
 // =======================
 // COMPONENT
 // =======================
@@ -116,6 +124,7 @@ export default function AdminArticles() {
 
   const addArticle = useAction(addArticleServer);
   const deleteArticle = useAction(deleteArticleServer);
+  const clearAllCache = useAction(clearAllCacheServer);
 
   // Form state
   const [title, setTitle] = createSignal("");
@@ -228,9 +237,21 @@ export default function AdminArticles() {
 
       <div class="admin-header">
         <h1 class="admin-title">Quản lý Bài Viết (SQL)</h1>
-        <A href="/admin" class="btn btn-back">
-          &larr; Quay lại Danh mục
-        </A>
+        <div class="flex gap-2">
+          <button 
+            type="button" 
+            class="btn btn-secondary"
+            onClick={async () => {
+              const count = await clearAllCache();
+              alert(`Đã xóa thành công ${count} bài viết trong RAM Cache!`);
+            }}
+          >
+            🧹 Xóa RAM Cache
+          </button>
+          <A href="/admin" class="btn btn-back">
+            &larr; Quay lại Danh mục
+          </A>
+        </div>
       </div>
 
       <div class="admin-grid admin-grid-lg">
