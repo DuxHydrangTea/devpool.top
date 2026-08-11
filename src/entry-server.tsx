@@ -12,6 +12,7 @@ export default createHandler(() => (
           <link rel="manifest" href="/manifest.json" />
           <link rel="apple-touch-icon" href="/favicon.webp" />
           <link rel="icon" href="/favicon.webp" />
+          <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
           {assets}
         </head>
         <body>

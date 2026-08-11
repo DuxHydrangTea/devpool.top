@@ -1,4 +1,4 @@
-import { Router, useIsRouting, useLocation, query, createAsync } from "@solidjs/router";
+import { Router, useIsRouting, useLocation, query, action, createAsync } from "@solidjs/router";
 import { FileRoutes } from "@solidjs/start/router";
 import { Suspense, createSignal, Show, createEffect, untrack } from "solid-js";
 import { MetaProvider } from "@solidjs/meta";
@@ -7,11 +7,72 @@ import Sidebar from "~/components/Sidebar";
 import TopNav from "~/components/TopNav";
 import { db } from "~/lib/turso";
 import { categories as categoriesSchema, articles as articlesSchema } from "~/db/schema";
-import { asc } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
+import { getAuthCookie, verifyToken, requireAuth } from "~/lib/auth";
+import { articleCache } from "~/lib/cache";
 import "./app.css";
+
+function generateSlug(text: string) {
+  return text.toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d").replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
+export const updateCategoryNameServer = action(async (data: { id: number; name: string }) => {
+  "use server";
+  await requireAuth();
+  if (!data.name || !data.name.trim()) return;
+  const newName = data.name.trim();
+  const slug = generateSlug(newName);
+  await db.update(categoriesSchema).set({
+    name: newName,
+    slug: slug
+  }).where(eq(categoriesSchema.id, data.id));
+}, "update-category-name");
+
+export const updateArticleTitleServer = action(async (data: { id: number; title: string }) => {
+  "use server";
+  await requireAuth();
+  if (!data.title || !data.title.trim()) return;
+  const newTitle = data.title.trim();
+  const slug = generateSlug(newTitle);
+
+  const target = await db.select().from(articlesSchema).where(eq(articlesSchema.id, data.id));
+  if (target.length > 0) {
+    articleCache.delete(target[0].slug);
+  }
+  articleCache.delete(slug);
+
+  await db.update(articlesSchema).set({
+    title: newTitle,
+    slug: slug
+  }).where(eq(articlesSchema.id, data.id));
+}, "update-article-title");
+
+export const updateArticleContentServer = action(async (data: { id: number; contentMd: string }) => {
+  "use server";
+  await requireAuth();
+  const target = await db.select().from(articlesSchema).where(eq(articlesSchema.id, data.id));
+  if (target.length > 0) {
+    articleCache.delete(target[0].slug);
+  }
+
+  await db.update(articlesSchema).set({
+    contentMd: data.contentMd
+  }).where(eq(articlesSchema.id, data.id));
+}, "update-article-content");
 
 const getSidebarDataServer = query(async () => {
   "use server";
+  const token = getAuthCookie();
+  let isAdmin = false;
+  if (token) {
+    const payload = await verifyToken(token);
+    if (payload) isAdmin = true;
+  }
+
   const categories = await db.select().from(categoriesSchema).orderBy(asc(categoriesSchema.order));
   const articles = await db.select({
     id: articlesSchema.id,
@@ -21,7 +82,7 @@ const getSidebarDataServer = query(async () => {
     slug: articlesSchema.slug
   }).from(articlesSchema).orderBy(asc(articlesSchema.order));
 
-  return { categories, articles };
+  return { categories, articles, isAdmin };
 }, "sidebar-data");
 
 function GlobalLoader() {

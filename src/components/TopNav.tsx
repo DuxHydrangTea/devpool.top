@@ -1,5 +1,6 @@
-import { For } from "solid-js";
-import { A } from "@solidjs/router";
+import { For, Show, createSignal } from "solid-js";
+import { A, useAction, revalidate } from "@solidjs/router";
+import { updateCategoryNameServer } from "~/app";
 
 interface Group {
   id: number;
@@ -11,7 +12,34 @@ export default function TopNav(props: {
   activeGroupId: number | null;
   setActiveGroupId: (id: number) => void;
   pageTitle: string;
+  isAdmin?: boolean;
 }) {
+  const updateCategoryName = useAction(updateCategoryNameServer);
+  const [editingId, setEditingId] = createSignal<number | null>(null);
+  const [editingName, setEditingName] = createSignal<string>("");
+
+  const startEdit = (group: Group) => {
+    setEditingId(group.id);
+    setEditingName(group.name);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditingName("");
+  };
+
+  const handleSave = async (id: number) => {
+    if (!editingName().trim()) return;
+    try {
+      await updateCategoryName({ id, name: editingName().trim() });
+      revalidate("sidebar-data");
+      cancelEdit();
+    } catch (err) {
+      console.error(err);
+      alert("Lỗi khi cập nhật tên!");
+    }
+  };
+
   return (
     <header class="top-nav">
       <div class="top-nav-brand">
@@ -23,12 +51,51 @@ export default function TopNav(props: {
       <div class="top-nav-tabs">
         <For each={props.groups}>
           {(group) => (
-            <button
-              class={`top-nav-tab ${props.activeGroupId === group.id ? "active" : ""}`}
-              onClick={() => props.setActiveGroupId(group.id)}
+            <Show
+              when={editingId() === group.id}
+              fallback={
+                <div style={{ display: "inline-flex", "align-items": "center", gap: "0.2rem" }}>
+                  <button
+                    class={`top-nav-tab ${props.activeGroupId === group.id ? "active" : ""}`}
+                    onClick={() => props.setActiveGroupId(group.id)}
+                  >
+                    {group.name}
+                  </button>
+                  <Show when={props.isAdmin}>
+                    <button
+                      class="cat-edit-btn"
+                      title="Sửa tên nhóm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startEdit(group);
+                      }}
+                    >
+                      <i class="fas fa-pencil-alt"></i>
+                    </button>
+                  </Show>
+                </div>
+              }
             >
-              {group.name}
-            </button>
+              <div class="inline-edit-box" onClick={(e) => e.stopPropagation()}>
+                <input
+                  type="text"
+                  class="inline-edit-input"
+                  value={editingName()}
+                  onInput={(e) => setEditingName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSave(group.id);
+                    if (e.key === "Escape") cancelEdit();
+                  }}
+                  ref={(el) => setTimeout(() => el?.focus(), 10)}
+                />
+                <button onClick={() => handleSave(group.id)} class="cat-save-btn" title="Lưu">
+                  <i class="fas fa-check"></i>
+                </button>
+                <button onClick={cancelEdit} class="cat-cancel-btn" title="Hủy">
+                  <i class="fas fa-times"></i>
+                </button>
+              </div>
+            </Show>
           )}
         </For>
       </div>

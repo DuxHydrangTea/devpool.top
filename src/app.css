@@ -1283,3 +1283,79 @@ textarea.form-input {
     max-width: 300px;
   }
 }
+
+/* Category Edit Button in Sidebar */
+.cat-edit-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  padding: 0.15rem 0.35rem;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: all 0.2s ease;
+  border-radius: 0.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0.25rem;
+}
+
+.cat-edit-btn:hover {
+  opacity: 1;
+  color: var(--info);
+  background-color: rgba(56, 189, 248, 0.15);
+}
+
+/* Inline Edit Controls for Categories */
+.inline-edit-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.inline-edit-input {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-md);
+  padding: 0.15rem 0.4rem;
+  font-size: 0.8rem;
+  outline: none;
+}
+
+.cat-save-btn {
+  background: rgba(52, 211, 153, 0.2);
+  border: 1px solid var(--accent-primary);
+  color: var(--accent-primary);
+  border-radius: var(--radius-md);
+  padding: 0.15rem 0.35rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: var(--transition);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.cat-save-btn:hover {
+  background: var(--accent-primary);
+  color: var(--bg-primary);
+}
+
+.cat-cancel-btn {
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  border-radius: var(--radius-md);
+  padding: 0.15rem 0.35rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: var(--transition);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.cat-cancel-btn:hover {
+  background: var(--danger);
+  color: var(--text-primary);
+}
