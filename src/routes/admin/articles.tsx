@@ -116,6 +116,50 @@ const clearAllCacheServer = action(async () => {
   return count;
 });
 
+const generateExaContentServer = action(async (prompt: string) => {
+  "use server";
+  await requireAuth();
+  const apiKey = process.env.EXA_API_KEY;
+  if (!apiKey) throw new Error("EXA_API_KEY is not set in .env");
+
+  const response = await fetch("https://api.exa.ai/search", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      query: prompt,
+      type: "auto",
+      systemPrompt: "You are an expert technical writer. Write a comprehensive, well-structured educational article in Markdown format (in Vietnamese) about the requested topic based on the search results. Include code examples if relevant.",
+      outputSchema: {
+        type: "object",
+        properties: {
+          article: {
+            type: "string",
+            description: "The full article formatted in Markdown"
+          }
+        },
+        required: ["article"]
+      },
+      contents: {
+        highlights: true
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Exa API error: ${errorText}`);
+  }
+
+  const data = await response.json();
+  if (!data.output?.content?.article) {
+    throw new Error("EXA API did not return article content.");
+  }
+  return data.output.content.article;
+});
+
 // =======================
 // COMPONENT
 // =======================
@@ -129,13 +173,16 @@ export default function AdminArticles() {
   const addArticle = useAction(addArticleServer);
   const deleteArticle = useAction(deleteArticleServer);
   const clearAllCache = useAction(clearAllCacheServer);
+  const generateExaContent = useAction(generateExaContentServer);
 
   // Form state
   const [title, setTitle] = createSignal("");
   const [contentMd, setContentMd] = createSignal("");
   const [chapterId, setChapterId] = createSignal<number | null>(null);
   const [order, setOrder] = createSignal(0);
+  const [exaPrompt, setExaPrompt] = createSignal("");
   const [isSubmitting, setIsSubmitting] = createSignal(false);
+  const [isGenerating, setIsGenerating] = createSignal(false);
 
   let textareaRef: HTMLTextAreaElement | undefined;
   let easymde: EasyMDE | undefined;
@@ -311,6 +358,44 @@ export default function AdminArticles() {
                   onInput={(e) => setOrder(Number(e.target.value))}
                   required
                 />
+              </div>
+            </div>
+
+            <div class="form-group p-4 rounded" style={{ border: "1px solid var(--border-color, #444)", "background-color": "rgba(0,0,0,0.1)" }}>
+              <label class="form-label mb-2 flex items-center justify-between">
+                <span>🪄 Tạo nội dung tự động bằng EXA AI</span>
+              </label>
+              <div class="flex gap-2">
+                <input
+                  type="text"
+                  class="form-input flex-1"
+                  placeholder="Nhập prompt hoặc chủ đề bài viết (vd: Hướng dẫn cơ bản về SolidJS...)"
+                  value={exaPrompt()}
+                  onInput={(e) => setExaPrompt(e.target.value)}
+                />
+                <button
+                  type="button"
+                  class="btn btn-secondary whitespace-nowrap"
+                  disabled={isGenerating() || !exaPrompt().trim()}
+                  onClick={async () => {
+                    if (!exaPrompt().trim()) return;
+                    setIsGenerating(true);
+                    try {
+                      const generated = await generateExaContent(exaPrompt().trim());
+                      if (generated) {
+                        setContentMd(generated);
+                        if (easymde) easymde.value(generated);
+                        alert("Đã tạo nội dung thành công!");
+                      }
+                    } catch (err: any) {
+                      console.error(err);
+                      alert(err.message || "Lỗi khi gọi EXA API");
+                    }
+                    setIsGenerating(false);
+                  }}
+                >
+                  {isGenerating() ? "Đang tạo..." : "Tạo bằng EXA"}
+                </button>
               </div>
             </div>
 
