@@ -66,7 +66,7 @@ const generateExaContentServer = action(async (prompt: string) => {
 // =======================
 export default function AdminArticles() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const filterChapterId = () => (searchParams.chapterId ? parseInt(searchParams.chapterId, 10) : undefined);
+  const filterChapterId = () => (searchParams.chapterId ? parseInt(searchParams.chapterId as string, 10) : undefined);
 
   const categories = createAsync(() => getCategoriesServer());
   const articlesData = createAsync(() => getArticlesServer(filterChapterId()));

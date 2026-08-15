@@ -1,4 +1,4 @@
-import { For, Show, onMount } from "solid-js";
+import { For, Show, onMount, onCleanup, createSignal, createMemo, createEffect } from "solid-js";
 import { A } from "@solidjs/router";
 import gsap from "gsap";
 
@@ -17,45 +17,178 @@ export default function TopNav(props: {
   onToggleSidebar?: () => void;
 }) {
   let navHeaderRef: HTMLElement | undefined;
+  let tabsContainerRef: HTMLElement | undefined;
+  let moreMenuRef: HTMLDivElement | undefined;
+
+  const [visibleCount, setVisibleCount] = createSignal(props.groups.length);
+  const [isMoreOpen, setIsMoreOpen] = createSignal(false);
+  const [dropdownPos, setDropdownPos] = createSignal<{ top: number; left: number }>({ top: 0, left: 0 });
+
+  // Map to cache intrinsic width of each tab by group id
+  const tabWidthCache = new Map<number, number>();
+
+  // Prioritize active group so the currently selected track is ALWAYS visible in full
+  const prioritizedGroups = createMemo(() => {
+    const list = [...props.groups];
+    const activeId = props.activeGroupId;
+    if (!activeId || list.length <= 1) return list;
+
+    const vCount = visibleCount();
+    const activeIdx = list.findIndex((g) => g.id === activeId);
+
+    // If active group would be hidden in overflow, promote it into the visible slots
+    if (activeIdx >= vCount && vCount > 0) {
+      const [activeItem] = list.splice(activeIdx, 1);
+      // Place it right before the overflow cut
+      list.splice(vCount - 1, 0, activeItem);
+    }
+
+    return list;
+  });
+
+  // Split prioritized groups into visible tabs and overflow dropdown items
+  const visibleGroups = createMemo(() => {
+    return prioritizedGroups().slice(0, visibleCount());
+  });
+
+  const overflowGroups = createMemo(() => {
+    return prioritizedGroups().slice(visibleCount());
+  });
+
+  // Accurate priority tabs calculation
+  const calculateVisibleTabs = () => {
+    if (!tabsContainerRef || props.groups.length === 0) return;
+
+    // Cache measured widths of any currently rendered tabs
+    const renderedTabs = tabsContainerRef.querySelectorAll<HTMLElement>(".client-nav-tab:not(.client-nav-more-btn)");
+    renderedTabs.forEach((el) => {
+      const gId = Number(el.dataset.groupId);
+      if (gId) {
+        tabWidthCache.set(gId, el.getBoundingClientRect().width);
+      }
+    });
+
+    const containerWidth = tabsContainerRef.clientWidth;
+    if (containerWidth <= 120) {
+      setVisibleCount(1);
+      return;
+    }
+
+    const gap = 8;
+    const moreBtnWidth = 78; // fixed compact width of "+N ▾"
+
+    // Estimate width of a tab if not yet measured
+    const getTabWidth = (group: Group) => {
+      return tabWidthCache.get(group.id) || (group.name.length * 8.5 + 44);
+    };
+
+    // Calculate total width if ALL tabs were shown
+    let totalAllWidth = 0;
+    props.groups.forEach((g, i) => {
+      totalAllWidth += getTabWidth(g) + (i > 0 ? gap : 0);
+    });
+
+    // If all tabs fit comfortably inside available space
+    if (totalAllWidth <= containerWidth) {
+      setVisibleCount(props.groups.length);
+      return;
+    }
+
+    // Need more button: calculate how many fit with moreBtnWidth reserved
+    const maxAllowedWidth = containerWidth - moreBtnWidth - gap;
+    let accumulatedWidth = 0;
+    let count = 0;
+
+    for (let i = 0; i < props.groups.length; i++) {
+      const g = props.groups[i];
+      const w = getTabWidth(g) + (i > 0 ? gap : 0);
+      if (accumulatedWidth + w <= maxAllowedWidth) {
+        accumulatedWidth += w;
+        count++;
+      } else {
+        break;
+      }
+    }
+
+    setVisibleCount(Math.max(1, count));
+  };
+
+  const toggleMoreMenu = (e: MouseEvent) => {
+    e.stopPropagation();
+    const btn = e.currentTarget as HTMLElement;
+    if (btn) {
+      const rect = btn.getBoundingClientRect();
+      setDropdownPos({
+        top: rect.bottom + 8,
+        left: Math.max(16, Math.min(window.innerWidth - 260, rect.left)),
+      });
+    }
+    setIsMoreOpen(!isMoreOpen());
+  };
 
   onMount(() => {
-    if (typeof window !== "undefined" && navHeaderRef) {
-      // 1. Animate brand identity on entry
-      gsap.fromTo(
-        navHeaderRef.querySelector(".client-brand-group"),
-        { opacity: 0, x: -14 },
-        { opacity: 1, x: 0, duration: 0.45, ease: "power2.out" }
-      );
+    if (typeof window !== "undefined") {
+      // 1. Initial measurement & ResizeObserver
+      if (tabsContainerRef) {
+        calculateVisibleTabs();
+        const ro = new ResizeObserver(() => {
+          calculateVisibleTabs();
+        });
+        ro.observe(tabsContainerRef);
 
-      // 2. Animate navigation track tabs with spring stagger
-      const tabs = navHeaderRef.querySelectorAll(".client-nav-tab");
-      if (tabs.length > 0) {
-        gsap.fromTo(
-          tabs,
-          { opacity: 0, y: -10, scale: 0.95 },
-          {
-            opacity: 1,
-            y: 0,
-            scale: 1,
-            duration: 0.4,
-            stagger: 0.05,
-            ease: "back.out(1.4)",
-            delay: 0.1,
-          }
-        );
+        onCleanup(() => ro.disconnect());
       }
 
-      // 3. Animate right-side actions cluster
+      // 2. Click outside & Escape handlers
+      const handleClickOutside = (e: MouseEvent) => {
+        if (isMoreOpen() && moreMenuRef && !moreMenuRef.contains(e.target as Node)) {
+          setIsMoreOpen(false);
+        }
+      };
+
+      const handleEscape = (e: KeyboardEvent) => {
+        if (e.key === "Escape" && isMoreOpen()) {
+          setIsMoreOpen(false);
+        }
+      };
+
+      const handleScroll = () => {
+        if (isMoreOpen()) setIsMoreOpen(false);
+      };
+
+      document.addEventListener("pointerdown", handleClickOutside);
+      document.addEventListener("keydown", handleEscape);
+      window.addEventListener("scroll", handleScroll, { passive: true });
+
+      onCleanup(() => {
+        document.removeEventListener("pointerdown", handleClickOutside);
+        document.removeEventListener("keydown", handleEscape);
+        window.removeEventListener("scroll", handleScroll);
+      });
+    }
+  });
+
+  // Re-calculate when groups prop or activeGroupId changes
+  createEffect(() => {
+    if (props.groups.length > 0) {
+      setTimeout(() => calculateVisibleTabs(), 30);
+    }
+  });
+
+  // GSAP animation on dropdown open
+  createEffect(() => {
+    if (isMoreOpen() && moreMenuRef) {
       gsap.fromTo(
-        navHeaderRef.querySelector(".client-nav-actions"),
-        { opacity: 0, x: 14 },
-        { opacity: 1, x: 0, duration: 0.45, ease: "power2.out", delay: 0.15 }
+        moreMenuRef,
+        { opacity: 0, y: -6, scale: 0.96 },
+        { opacity: 1, y: 0, scale: 1, duration: 0.2, ease: "power2.out" }
       );
     }
   });
 
   const handleTabClick = (e: MouseEvent, groupId: number) => {
     props.setActiveGroupId(groupId);
+    setIsMoreOpen(false);
     if (typeof window !== "undefined") {
       const target = e.currentTarget as HTMLElement;
       gsap.fromTo(
@@ -100,23 +233,91 @@ export default function TopNav(props: {
           <span class="client-brand-subtag">Learning Hub</span>
         </div>
 
-        {/* Center: Learning Track Tabs with GSAP interaction */}
-        <nav class="client-tabs-container">
-          <For each={props.groups}>
+        {/* Center: Dynamic Priority+ Navigation (No Text Truncation, No Overflow Collision) */}
+        <nav ref={tabsContainerRef} class="client-tabs-container">
+          <For each={visibleGroups()}>
             {(group) => (
               <button
+                type="button"
+                data-group-id={group.id}
                 classList={{
                   "client-nav-tab": true,
                   active: props.activeGroupId === group.id,
                 }}
                 onClick={(e) => handleTabClick(e, group.id)}
+                title={`Chuyển sang ${group.name}`}
               >
                 <span class="client-tab-dot" />
                 <span>{group.name}</span>
               </button>
             )}
           </For>
+
+          {/* Priority+ Overflow Dropdown Trigger Button - Always Compact & Clean */}
+          <Show when={overflowGroups().length > 0}>
+            <div class="client-nav-more-wrapper">
+              <button
+                type="button"
+                class={`client-nav-tab client-nav-more-btn ${isMoreOpen() ? "open" : ""}`}
+                onClick={toggleMoreMenu}
+                title="Xem các chủ đề khác"
+                aria-expanded={isMoreOpen()}
+              >
+                <svg
+                  class="client-more-icon"
+                  width="14"
+                  height="14"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  stroke-width="2"
+                >
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+                <span>+{overflowGroups().length}</span>
+                <span class="client-more-chevron">{isMoreOpen() ? "▴" : "▾"}</span>
+              </button>
+            </div>
+          </Show>
         </nav>
+
+        {/* Fixed Dropdown Menu (Portal Style) */}
+        <Show when={isMoreOpen() && overflowGroups().length > 0}>
+          <div
+            ref={moreMenuRef}
+            class="client-nav-overflow-menu fixed-menu"
+            style={{
+              position: "fixed",
+              top: `${dropdownPos().top}px`,
+              left: `${dropdownPos().left}px`,
+            }}
+          >
+            <div class="client-overflow-header">
+              <span class="client-overflow-title">CHỦ ĐỀ KHÁC</span>
+              <span class="client-overflow-count">{overflowGroups().length} môn học</span>
+            </div>
+            <div class="client-overflow-list">
+              <For each={overflowGroups()}>
+                {(group) => {
+                  const isActive = () => props.activeGroupId === group.id;
+                  return (
+                    <button
+                      type="button"
+                      class={`client-overflow-item ${isActive() ? "active" : ""}`}
+                      onClick={(e) => handleTabClick(e, group.id)}
+                    >
+                      <span class={`client-overflow-dot ${isActive() ? "active" : ""}`} />
+                      <span class="client-overflow-name">{group.name}</span>
+                      <Show when={isActive()}>
+                        <span class="client-overflow-check">✓</span>
+                      </Show>
+                    </button>
+                  );
+                }}
+              </For>
+            </div>
+          </div>
+        </Show>
 
         {/* Right: Quick Search Button & Links */}
         <div class="client-nav-actions">
