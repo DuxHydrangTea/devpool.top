@@ -1,8 +1,8 @@
 import { db } from "~/lib/turso";
 import { articles as articlesSchema, categories as categoriesSchema } from "~/db/schema";
 import { eq, asc } from "drizzle-orm";
-import { DocPayload, TocItem } from "~/types/doc.types";
-import { parseMarkdown, extractTocFromMarkdown } from "~/lib/markdown";
+import { DocPayload } from "~/types/doc.types";
+import { parseMarkdown } from "~/lib/markdown";
 import { getArticleCache, setArticleCache, getSiteTreeCache, setSiteTreeCache, invalidateSiteTree } from "~/lib/cache";
 import { ArticleMeta } from "~/types/article.types";
 import { Category } from "~/types/category.types";
@@ -212,8 +212,6 @@ export class DocService {
     const words = (data.contentMd || "").trim().split(/\s+/).filter(Boolean).length;
     const readMinutes = Math.max(1, Math.ceil(words / 220));
 
-    const toc = extractTocFromMarkdown(data.contentMd || "");
-
     const result: DocPayload = {
       id: data.id,
       title: data.title,
@@ -231,7 +229,6 @@ export class DocService {
       next: nextResult ? { title: nextResult.title, slug: getArticlePath(nextResult) } : null,
       prevArticle: prevResult ? { title: prevResult.title, slug: getArticlePath(prevResult) } : null,
       nextArticle: nextResult ? { title: nextResult.title, slug: getArticlePath(nextResult) } : null,
-      toc,
       isAdmin,
     };
 
@@ -292,7 +289,6 @@ export class DocService {
       next: null,
       prevArticle: null,
       nextArticle: null,
-      toc: [],
       isAdmin,
     };
   }

@@ -1,7 +1,6 @@
 import { marked } from "marked";
 import { markedHighlight } from "marked-highlight";
 import hljs from "highlight.js";
-import { TocItem } from "~/types/doc.types";
 
 // Custom Highlight.js for Odin language
 hljs.registerLanguage('odin', function (e: any) {
@@ -120,19 +119,6 @@ hljs.registerLanguage('gdscript', function (e: any) {
   };
 });
 
-export function generateHeadingId(text: string): string {
-  return text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/Đ/g, "d")
-    .replace(/[^\w\s-]/g, "")
-    .trim()
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-");
-}
-
 marked.use(markedHighlight({
   langPrefix: 'hljs language-',
   highlight(code, lang) {
@@ -141,58 +127,6 @@ marked.use(markedHighlight({
   }
 }));
 
-// Heading renderer with anchor IDs for Table of Contents
-marked.use({
-  renderer: {
-    heading({ tokens, depth }: { tokens: any[]; depth: number }) {
-      const text = this.parser.parseInline(tokens);
-      const plainText = text.replace(/<[^>]+>/g, "").trim();
-      const id = generateHeadingId(plainText);
-      return `<h${depth} id="${id}" class="heading-anchor-target"><a href="#${id}" class="heading-anchor" aria-hidden="true">#</a>${text}</h${depth}>\n`;
-    },
-  },
-});
-
 export function parseMarkdown(content: string) {
   return marked.parse(content);
-}
-
-/**
- * Extracts Table of Contents items (H2, H3, H4) from raw Markdown
- */
-export function extractTocFromMarkdown(markdown: string): TocItem[] {
-  if (!markdown) return [];
-  const lines = markdown.split("\n");
-  const toc: TocItem[] = [];
-  let inCodeBlock = false;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith("```")) {
-      inCodeBlock = !inCodeBlock;
-      continue;
-    }
-    if (inCodeBlock) continue;
-
-    const match = trimmed.match(/^(#{2,4})\s+(.+)$/);
-    if (match) {
-      const level = match[1].length;
-      const rawText = match[2].trim();
-      const cleanText = rawText
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-        .replace(/[*_`]/g, "")
-        .trim();
-
-      const id = generateHeadingId(cleanText);
-      if (id && cleanText) {
-        toc.push({
-          id,
-          text: cleanText,
-          level,
-        });
-      }
-    }
-  }
-
-  return toc;
 }
