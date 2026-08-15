@@ -1,5 +1,5 @@
-import { useParams, useAction, revalidate, query, createAsync, A } from "@solidjs/router";
-import { Show, Suspense, createSignal, createEffect, onCleanup } from "solid-js";
+import { useParams, query, createAsync, A } from "@solidjs/router";
+import { Show, Suspense, createEffect, onCleanup } from "solid-js";
 import { Title, Meta } from "@solidjs/meta";
 import { parseMarkdown } from "~/lib/markdown";
 import { db } from "~/lib/turso";
@@ -9,10 +9,8 @@ import "highlight.js/styles/base16/dracula.min.css";
 import { usePageTitle } from "~/contexts/TitleContext";
 import { articleCache } from "~/lib/cache";
 import { getAuthCookie, verifyToken } from "~/lib/auth";
-import { updateArticleTitleServer, updateArticleContentServer } from "~/app";
-import type EasyMDE from "easymde";
-import "easymde/dist/easymde.min.css";
 import "viewerjs/dist/viewer.css";
+import gsap from "gsap";
 
 const getArticleServer = query(async (slugId: string) => {
   "use server";
@@ -24,12 +22,10 @@ const getArticleServer = query(async (slugId: string) => {
     const payload = await verifyToken(token);
     if (payload) isAdmin = true;
   }
-  
-  // fullSlug có thể chứa category-slug/article-slug
-  const slugParts = slugId.split('/');
+
+  const slugParts = slugId.split("/");
   const articleSlug = slugParts[slugParts.length - 1];
-  
-  // Trả về luôn dữ liệu trong RAM nếu đã được cache (chỉ trả về khi không cần cập nhật cache)
+
   if (articleCache.has(articleSlug)) {
     const cached = articleCache.get(articleSlug);
     if (cached.contentMd !== undefined) {
@@ -47,19 +43,19 @@ const getArticleServer = query(async (slugId: string) => {
     const allArticles = await db.select().from(articlesSchema).orderBy(asc(articlesSchema.order));
 
     const flatArticles: typeof allArticles = [];
-    const groups = allCategories.filter(c => c.type === "group");
+    const groups = allCategories.filter((c) => c.type === "group");
     for (const group of groups) {
-      const cats = allCategories.filter(c => c.type === "category" && c.parentId === group.id);
+      const cats = allCategories.filter((c) => c.type === "category" && c.parentId === group.id);
       for (const cat of cats) {
-        const chaps = allCategories.filter(c => c.type === "chapter" && c.parentId === cat.id);
+        const chaps = allCategories.filter((c) => c.type === "chapter" && c.parentId === cat.id);
         for (const chap of chaps) {
-          const arts = allArticles.filter(a => a.chapterId === chap.id);
+          const arts = allArticles.filter((a) => a.chapterId === chap.id);
           flatArticles.push(...arts);
         }
       }
     }
 
-    const currentIndex = flatArticles.findIndex(a => a.slug === slugId);
+    const currentIndex = flatArticles.findIndex((a) => a.slug === articleSlug || a.slug === slugId);
     let prevResult = null;
     let nextResult = null;
 
@@ -71,38 +67,57 @@ const getArticleServer = query(async (slugId: string) => {
     }
 
     const getArticlePath = (article: typeof data) => {
-      const chapter = allCategories.find(c => c.id === article.chapterId);
+      const chapter = allCategories.find((c) => c.id === article.chapterId);
       let cat = null;
       if (chapter && chapter.type === "chapter") {
-         cat = allCategories.find(c => c.id === chapter.parentId);
+        cat = allCategories.find((c) => c.id === chapter.parentId);
       } else if (chapter && chapter.type === "category") {
-         cat = chapter;
+        cat = chapter;
       }
       return cat && cat.slug ? `${cat.slug}/${article.slug}` : article.slug;
     };
 
+    // Find parent chapter and category for breadcrumbs
+    const currentChapter = allCategories.find((c) => c.id === data.chapterId);
+    const currentCat = currentChapter ? allCategories.find((c) => c.id === currentChapter.parentId) : null;
+    const currentGroup = currentCat ? allCategories.find((g) => g.id === currentCat.parentId) : null;
+
+    const words = (data.contentMd || "").trim().split(/\s+/).filter(Boolean).length;
+    const readMinutes = Math.max(1, Math.ceil(words / 220));
+
     const result = {
       id: data.id,
       title: data.title,
+      slug: data.slug,
       contentMd: data.contentMd || "",
       content: htmlContent,
+      words,
+      readMinutes,
+      groupName: currentGroup?.name || "Tài liệu",
+      catName: currentCat?.name || "Chuyên mục",
+      chapName: currentChapter?.name || "Chương",
       prev: prevResult ? { title: prevResult.title, slug: getArticlePath(prevResult) } : null,
-      next: nextResult ? { title: nextResult.title, slug: getArticlePath(nextResult) } : null
+      next: nextResult ? { title: nextResult.title, slug: getArticlePath(nextResult) } : null,
     };
-    
-    // Lưu vào bộ nhớ đệm (Cache) trên Server bằng articleSlug để đảm bảo ID duy nhất
+
     articleCache.set(articleSlug, result);
     return { ...result, isAdmin };
   }
 
   return {
     id: 0,
-    title: "Không tìm thấy",
+    title: "Không tìm thấy bài viết",
+    slug: "",
     contentMd: "",
-    content: "<h1>Bài viết không tồn tại</h1><p>Vui lòng kiểm tra lại đường dẫn.</p>",
+    content: "<h1>Bài viết không tồn tại</h1><p>Vui lòng kiểm tra lại đường dẫn hoặc chọn bài viết từ danh mục bên trái.</p>",
+    words: 0,
+    readMinutes: 0,
+    groupName: "Tài liệu",
+    catName: "Chuyên mục",
+    chapName: "Chương",
     isAdmin,
     prev: null,
-    next: null
+    next: null,
   };
 }, "doc-article");
 
@@ -110,122 +125,97 @@ export default function DocPage() {
   const params = useParams();
   const article = createAsync(() => getArticleServer(params.slug || ""));
   const [, setPageTitle] = usePageTitle();
-  const updateArticleTitle = useAction(updateArticleTitleServer);
-  const updateArticleContent = useAction(updateArticleContentServer);
-
-  const [isEditingTitle, setIsEditingTitle] = createSignal(false);
-  const [editingTitle, setEditingTitle] = createSignal("");
-
-  const [isEditingContent, setIsEditingContent] = createSignal(false);
-  const [editingContentMd, setEditingContentMd] = createSignal("");
-  const [isSavingContent, setIsSavingContent] = createSignal(false);
 
   let viewerInstance: any = null;
-  let textareaRef: HTMLTextAreaElement | undefined;
-  let easymde: EasyMDE | undefined;
-
-  const handleSaveTitle = async () => {
-    const art = article();
-    if (!art || !art.id || !editingTitle().trim()) return;
-    try {
-      await updateArticleTitle({ id: art.id, title: editingTitle().trim() });
-      revalidate("doc-article");
-      revalidate("sidebar-data");
-      setIsEditingTitle(false);
-    } catch (err) {
-      console.error(err);
-      alert("Lỗi khi cập nhật tiêu đề bài viết!");
-    }
-  };
-
-  const handleSaveContent = async () => {
-    const art = article();
-    if (!art || !art.id) return;
-    const contentToSave = easymde ? easymde.value() : editingContentMd();
-    setIsSavingContent(true);
-    try {
-      await updateArticleContent({ id: art.id, contentMd: contentToSave });
-      revalidate("doc-article");
-      if (easymde) {
-        easymde.toTextArea();
-        easymde = undefined;
-      }
-      setIsEditingContent(false);
-    } catch (err) {
-      console.error(err);
-      alert("Lỗi khi cập nhật nội dung bài viết!");
-    }
-    setIsSavingContent(false);
-  };
-
-  const handleCancelContent = () => {
-    if (easymde) {
-      easymde.toTextArea();
-      easymde = undefined;
-    }
-    setIsEditingContent(false);
-  };
-
-  createEffect(() => {
-    if (isEditingContent()) {
-      const md = article()?.contentMd || "";
-      setEditingContentMd(md);
-
-      setTimeout(async () => {
-        if (textareaRef && !easymde) {
-          const EasyMDEClass = (await import("easymde")).default;
-          easymde = new EasyMDEClass({
-            element: textareaRef,
-            initialValue: md,
-            spellChecker: false,
-            maxHeight: "550px",
-            previewRender: (plainText) => {
-              return `<div class="prose" style="padding: 1rem;">${parseMarkdown(plainText)}</div>`;
-            }
-          });
-          easymde.codemirror.on("change", () => {
-            setEditingContentMd(easymde!.value());
-          });
-        } else if (easymde) {
-          easymde.value(md);
-        }
-      }, 30);
-    } else {
-      if (easymde) {
-        easymde.toTextArea();
-        easymde = undefined;
-      }
-    }
-  });
+  let articleContainerRef: HTMLElement | undefined;
 
   createEffect(() => {
     const data = article();
     if (data?.title) {
       setPageTitle(data.title);
-      
-      // Tự động cuộn lên đầu trang
-      const mainContent = document.querySelector('.main-content');
-      if (mainContent) {
-        mainContent.scrollTo({ top: 0, behavior: "smooth" });
-      } else {
-        window.scrollTo({ top: 0, behavior: "smooth" });
+
+      if (typeof window !== "undefined") {
+        const mainContent = document.querySelector(".main-content");
+        if (mainContent) {
+          mainContent.scrollTo({ top: 0, behavior: "smooth" });
+        } else {
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        }
+
+        // GSAP: Animate rendered Markdown content and article header
+        setTimeout(() => {
+          if (articleContainerRef) {
+            // 1. Breadcrumbs & Header Card
+            const header = articleContainerRef.querySelector(".doc-header-card");
+            const breadcrumbs = articleContainerRef.querySelector(".doc-breadcrumbs");
+            if (breadcrumbs) {
+              gsap.fromTo(
+                breadcrumbs,
+                { opacity: 0, x: -10 },
+                { opacity: 1, x: 0, duration: 0.35, ease: "power2.out" }
+              );
+            }
+            if (header) {
+              gsap.fromTo(
+                header,
+                { opacity: 0, y: 14 },
+                { opacity: 1, y: 0, duration: 0.4, ease: "power2.out", delay: 0.05 }
+              );
+            }
+
+            // 2. Prose Markdown Elements Cascade Stagger
+            const prose = articleContainerRef.querySelector(".prose");
+            if (prose) {
+              const children = prose.children;
+              if (children.length > 0) {
+                gsap.fromTo(
+                  Array.from(children).slice(0, 15), // animate top 15 elements smoothly
+                  { opacity: 0, y: 16 },
+                  {
+                    opacity: 1,
+                    y: 0,
+                    duration: 0.45,
+                    stagger: 0.035,
+                    ease: "power2.out",
+                    delay: 0.1,
+                  }
+                );
+              }
+            }
+
+            // 3. Prev / Next Navigation Cards
+            const navCards = articleContainerRef.querySelectorAll(".doc-pag-card");
+            if (navCards.length > 0) {
+              gsap.fromTo(
+                navCards,
+                { opacity: 0, y: 18 },
+                {
+                  opacity: 1,
+                  y: 0,
+                  duration: 0.4,
+                  stagger: 0.08,
+                  ease: "back.out(1.2)",
+                  delay: 0.2,
+                }
+              );
+            }
+          }
+        }, 30);
       }
-      
-      // Cleanup previous viewer instance
+
       if (viewerInstance) {
         viewerInstance.destroy();
         viewerInstance = null;
       }
-      
-      // Initialize image zoom viewer after DOM update
+
       setTimeout(async () => {
-        const Viewer = (await import('viewerjs')).default;
-        const proseContainer = document.querySelector('.prose');
+        const Viewer = (await import("viewerjs")).default;
+        const proseContainer = document.querySelector(".prose");
         if (proseContainer) {
-          const images = proseContainer.querySelectorAll('img');
+          const images = proseContainer.querySelectorAll("img");
           if (images.length > 0) {
             viewerInstance = new Viewer(proseContainer as HTMLElement, {
-              navbar: false, // Hide thumbnail navbar for cleaner UI
+              navbar: false,
               title: false,
               toolbar: {
                 zoomIn: 4,
@@ -240,12 +230,11 @@ export default function DocPage() {
                 flipHorizontal: 0,
                 flipVertical: 0,
               },
-              // Thêm con trỏ chuột Kính lúp vào ảnh
               ready() {
-                images.forEach(img => {
-                  (img as HTMLElement).style.cursor = 'zoom-in';
+                images.forEach((img) => {
+                  (img as HTMLElement).style.cursor = "zoom-in";
                 });
-              }
+              },
             });
           }
         }
@@ -258,140 +247,103 @@ export default function DocPage() {
     if (viewerInstance) {
       viewerInstance.destroy();
     }
-    if (easymde) {
-      easymde.toTextArea();
-      easymde = undefined;
-    }
   });
 
   return (
-    <div class="doc-page">
-      <Suspense fallback={
-        <div class="loading-state">
-          <div class="spinner"></div>
-          <p>Đang tải tài liệu...</p>
-        </div>
-      }>
+    <div class="doc-page-wrapper">
+      <Suspense
+        fallback={
+          <div class="doc-skeleton-placeholder">
+            <div class="doc-skeleton-crumb skeleton-shimmer" />
+            <div class="doc-skeleton-header skeleton-shimmer" />
+            <div class="doc-skeleton-lines">
+              <div class="skeleton-line skeleton-shimmer w-3/4" />
+              <div class="skeleton-line skeleton-shimmer w-full" />
+              <div class="skeleton-line skeleton-shimmer w-5/6" />
+              <div class="skeleton-line skeleton-shimmer w-2/3" />
+            </div>
+          </div>
+        }
+      >
         <Show when={article()}>
-          <Title>{article()?.title} - Raylib Odin (SQL)</Title>
+          <Title>{article()?.title} - DevPool Learning</Title>
           <Meta name="description" content={`Đọc bài viết: ${article()?.title}`} />
 
-          <Show when={article()?.isAdmin && article()?.id}>
-            <div style={{ "margin-bottom": "1.5rem", padding: "0.75rem 1rem", background: "var(--bg-secondary)", "border-radius": "var(--radius-lg)", border: "1px solid var(--border-color)", display: "flex", "align-items": "center", "justify-content": "space-between", "flex-wrap": "wrap", gap: "0.5rem" }}>
-              <Show
-                when={isEditingTitle()}
-                fallback={
-                  <div style={{ display: "flex", "align-items": "center", gap: "0.75rem", flex: "1", "flex-wrap": "wrap", "justify-content": "space-between" }}>
-                    <h1 style={{ "font-size": "1.25rem", "font-weight": 700, margin: 0, color: "var(--text-primary)" }}>{article()?.title}</h1>
-                    <div style={{ display: "flex", gap: "0.5rem", "align-items": "center" }}>
-                      <button
-                        class="cat-edit-btn"
-                        style={{ "font-size": "0.85rem", padding: "0.3rem 0.6rem" }}
-                        title="Sửa tiêu đề bài viết"
-                        onClick={() => {
-                          setIsEditingTitle(true);
-                          setEditingTitle(article()?.title || "");
-                        }}
-                      >
-                        <i class="fas fa-pencil-alt"></i> Sửa tiêu đề
-                      </button>
-                      <button
-                        class="cat-edit-btn"
-                        style={{ "font-size": "0.85rem", padding: "0.3rem 0.6rem", color: "var(--accent-primary)", "border-color": "var(--accent-primary)" }}
-                        title="Sửa nội dung Markdown"
-                        onClick={() => {
-                          const nextState = !isEditingContent();
-                          if (!nextState && easymde) {
-                            easymde.toTextArea();
-                            easymde = undefined;
-                          }
-                          setIsEditingContent(nextState);
-                        }}
-                      >
-                        <i class={`fas ${isEditingContent() ? 'fa-eye' : 'fa-edit'}`}></i> {isEditingContent() ? "Xem giao diện" : "Sửa nội dung (EasyMDE)"}
-                      </button>
-                    </div>
-                  </div>
-                }
-              >
-                <div class="inline-edit-box" style={{ width: "100%" }}>
-                  <input
-                    type="text"
-                    class="inline-edit-input"
-                    style={{ flex: 1, "font-size": "1.1rem", padding: "0.4rem 0.6rem" }}
-                    value={editingTitle()}
-                    onInput={(e) => setEditingTitle(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleSaveTitle();
-                      if (e.key === "Escape") setIsEditingTitle(false);
-                    }}
-                    ref={(el) => setTimeout(() => el?.focus(), 10)}
-                  />
-                  <button onClick={handleSaveTitle} class="cat-save-btn" style={{ padding: "0.4rem 0.8rem" }} title="Lưu">
-                    <i class="fas fa-check"></i> Lưu
-                  </button>
-                  <button onClick={() => setIsEditingTitle(false)} class="cat-cancel-btn" style={{ padding: "0.4rem 0.8rem" }} title="Hủy">
-                    <i class="fas fa-times"></i> Hủy
-                  </button>
-                </div>
-              </Show>
-            </div>
-          </Show>
+          {/* ARTICLE ARTICLE CONTAINER */}
+          <article ref={articleContainerRef} class="doc-article-container">
+            {/* BREADCRUMB TRAIL */}
+            <nav class="doc-breadcrumbs">
+              <A href="/" class="crumb-link">
+                🏠 Trang chủ
+              </A>
+              <span class="crumb-sep">/</span>
+              <span class="crumb-group">{article()?.groupName}</span>
+              <span class="crumb-sep">/</span>
+              <span class="crumb-cat">{article()?.catName}</span>
+              <span class="crumb-sep">/</span>
+              <span class="crumb-chap">{article()?.chapName}</span>
+            </nav>
 
-          <Show
-            when={isEditingContent()}
-            fallback={
-              <div
-                class="prose"
-                innerHTML={article()?.content as string}
-              />
-            }
-          >
-            <div class="markdown-editor-container" style={{ "margin-bottom": "2rem" }}>
-              <div style={{ display: "flex", "justify-content": "space-between", "align-items": "center", "margin-bottom": "0.75rem" }}>
-                <label style={{ "font-weight": 600, color: "var(--accent-primary)", "font-size": "0.95rem", display: "flex", "align-items": "center", gap: "0.5rem" }}>
-                  <i class="fas fa-edit"></i> Trình soạn thảo EasyMDE (Markdown)
-                </label>
-                <div style={{ display: "flex", gap: "0.5rem" }}>
-                  <button
-                    onClick={handleSaveContent}
-                    class="btn btn-primary"
-                    style={{ padding: "0.4rem 1rem", "font-size": "0.85rem", display: "flex", "align-items": "center", gap: "0.4rem" }}
-                    disabled={isSavingContent()}
-                  >
-                    <i class="fas fa-save"></i> {isSavingContent() ? "Đang lưu..." : "Lưu nội dung"}
-                  </button>
-                  <button
-                    onClick={handleCancelContent}
-                    class="btn btn-secondary"
-                    style={{ padding: "0.4rem 1rem", "font-size": "0.85rem", display: "flex", "align-items": "center", gap: "0.4rem" }}
-                  >
-                    <i class="fas fa-times"></i> Hủy
-                  </button>
+            {/* ARTICLE HEADER BAR */}
+            <header class="doc-header-card">
+              <h1 class="doc-main-title">{article()?.title}</h1>
+
+              <div class="doc-meta-row">
+                <div class="doc-meta-pills">
+                  <span class="meta-pill">
+                    <svg class="meta-pill-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>~{article()?.readMinutes} phút đọc</span>
+                  </span>
+                  <span class="meta-pill">
+                    <svg class="meta-pill-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <span>{article()?.words} từ</span>
+                  </span>
                 </div>
+
+                <Show when={article()?.isAdmin}>
+                  <A
+                    href={`/admin/articles`}
+                    class="doc-admin-edit-link"
+                    title="Mở trong bảng điều khiển Admin"
+                  >
+                    ✏️ Chỉnh sửa trong Admin
+                  </A>
+                </Show>
               </div>
-              <textarea
-                ref={(el) => (textareaRef = el)}
-                class="form-input"
-                placeholder="Nhập nội dung bài viết dưới dạng Markdown..."
-              />
-            </div>
-          </Show>
+            </header>
 
-          <div style={{ display: "flex", "justify-content": "space-between", gap: "1rem", "margin-top": "3rem", "padding-top": "2rem", "border-top": "1px solid var(--border-color)", "flex-wrap": "wrap" }}>
-            <Show when={article()?.prev} fallback={<div />}>
-              <A href={`/docs/${article()?.prev?.slug}`} class="btn btn-back" style={{ display: "flex", "flex-direction": "column", "align-items": "flex-start", gap: "0.25rem", padding: "0.75rem 1.25rem", flex: "1", "min-width": "120px" }}>
-                <span style={{ "font-size": "0.7rem", color: "var(--text-muted)", "text-transform": "uppercase", "letter-spacing": "0.05em" }}>Bài trước</span>
-                <span style={{ "font-weight": 600 }}>« {article()?.prev?.title}</span>
-              </A>
-            </Show>
-            <Show when={article()?.next} fallback={<div />}>
-              <A href={`/docs/${article()?.next?.slug}`} class="btn btn-primary" style={{ display: "flex", "flex-direction": "column", "align-items": "flex-end", gap: "0.25rem", padding: "0.75rem 1.25rem", flex: "1", "min-width": "120px" }}>
-                <span style={{ "font-size": "0.7rem", color: "rgba(255,255,255,0.8)", "text-transform": "uppercase", "letter-spacing": "0.05em" }}>Bài tiếp theo</span>
-                <span style={{ "font-weight": 600 }}>{article()?.next?.title} »</span>
-              </A>
-            </Show>
-          </div>
+            {/* PROSE CONTENT */}
+            <div class="doc-prose-body">
+              <div class="prose" innerHTML={article()?.content as string} />
+            </div>
+
+            {/* PREV / NEXT NAVIGATION CARDS */}
+            <nav class="doc-pagination-cards">
+              <Show
+                when={article()?.prev}
+                fallback={<div class="doc-pag-placeholder" />}
+              >
+                <A href={`/docs/${article()?.prev?.slug}`} class="doc-pag-card pag-prev">
+                  <span class="pag-sub">← Bài trước đó</span>
+                  <span class="pag-title">{article()?.prev?.title}</span>
+                </A>
+              </Show>
+
+              <Show
+                when={article()?.next}
+                fallback={<div class="doc-pag-placeholder" />}
+              >
+                <A href={`/docs/${article()?.next?.slug}`} class="doc-pag-card pag-next">
+                  <span class="pag-sub">Bài kế tiếp →</span>
+                  <span class="pag-title">{article()?.next?.title}</span>
+                </A>
+              </Show>
+            </nav>
+          </article>
         </Show>
       </Suspense>
     </div>

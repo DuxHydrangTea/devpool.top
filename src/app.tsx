@@ -1,10 +1,11 @@
 import { Router, useIsRouting, useLocation, query, action, createAsync } from "@solidjs/router";
 import { FileRoutes } from "@solidjs/start/router";
-import { Suspense, createSignal, Show, createEffect, untrack } from "solid-js";
+import { Suspense, createSignal, Show, createEffect, onCleanup, createMemo, onMount } from "solid-js";
 import { MetaProvider } from "@solidjs/meta";
 import { TitleContext } from "~/contexts/TitleContext";
 import Sidebar from "~/components/Sidebar";
 import TopNav from "~/components/TopNav";
+import SearchModal, { SearchArticleItem } from "~/components/SearchModal";
 import { db } from "~/lib/turso";
 import { categories as categoriesSchema, articles as articlesSchema } from "~/db/schema";
 import { asc, eq } from "drizzle-orm";
@@ -13,11 +14,13 @@ import { articleCache } from "~/lib/cache";
 import "./app.css";
 
 function generateSlug(text: string) {
-  return text.toLowerCase()
+  return text
+    .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d").replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)/g, '');
+    .replace(/đ/g, "d")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
 }
 
 export const updateCategoryNameServer = action(async (data: { id: number; name: string }) => {
@@ -26,10 +29,13 @@ export const updateCategoryNameServer = action(async (data: { id: number; name: 
   if (!data.name || !data.name.trim()) return;
   const newName = data.name.trim();
   const slug = generateSlug(newName);
-  await db.update(categoriesSchema).set({
-    name: newName,
-    slug: slug
-  }).where(eq(categoriesSchema.id, data.id));
+  await db
+    .update(categoriesSchema)
+    .set({
+      name: newName,
+      slug: slug,
+    })
+    .where(eq(categoriesSchema.id, data.id));
 }, "update-category-name");
 
 export const updateArticleTitleServer = action(async (data: { id: number; title: string }) => {
@@ -45,10 +51,13 @@ export const updateArticleTitleServer = action(async (data: { id: number; title:
   }
   articleCache.delete(slug);
 
-  await db.update(articlesSchema).set({
-    title: newTitle,
-    slug: slug
-  }).where(eq(articlesSchema.id, data.id));
+  await db
+    .update(articlesSchema)
+    .set({
+      title: newTitle,
+      slug: slug,
+    })
+    .where(eq(articlesSchema.id, data.id));
 }, "update-article-title");
 
 export const updateArticleContentServer = action(async (data: { id: number; contentMd: string }) => {
@@ -59,9 +68,12 @@ export const updateArticleContentServer = action(async (data: { id: number; cont
     articleCache.delete(target[0].slug);
   }
 
-  await db.update(articlesSchema).set({
-    contentMd: data.contentMd
-  }).where(eq(articlesSchema.id, data.id));
+  await db
+    .update(articlesSchema)
+    .set({
+      contentMd: data.contentMd,
+    })
+    .where(eq(articlesSchema.id, data.id));
 }, "update-article-content");
 
 const getSidebarDataServer = query(async () => {
@@ -74,39 +86,77 @@ const getSidebarDataServer = query(async () => {
   }
 
   const categories = await db.select().from(categoriesSchema).orderBy(asc(categoriesSchema.order));
-  const articles = await db.select({
-    id: articlesSchema.id,
-    title: articlesSchema.title,
-    chapterId: articlesSchema.chapterId,
-    order: articlesSchema.order,
-    slug: articlesSchema.slug
-  }).from(articlesSchema).orderBy(asc(articlesSchema.order));
+  const articles = await db
+    .select({
+      id: articlesSchema.id,
+      title: articlesSchema.title,
+      chapterId: articlesSchema.chapterId,
+      order: articlesSchema.order,
+      slug: articlesSchema.slug,
+    })
+    .from(articlesSchema)
+    .orderBy(asc(articlesSchema.order));
 
   return { categories, articles, isAdmin };
 }, "sidebar-data");
 
-function GlobalLoader() {
+import gsap from "gsap";
+
+function GlobalProgressBar() {
   const isRouting = useIsRouting();
+  let barRef: HTMLDivElement | undefined;
+  let tween: gsap.core.Tween | null = null;
+
+  createEffect(() => {
+    const routing = isRouting();
+    if (typeof window === "undefined" || !barRef) return;
+
+    if (routing) {
+      if (tween) tween.kill();
+      gsap.set(barRef, { width: "0%", opacity: 1 });
+      tween = gsap.to(barRef, {
+        width: "75%",
+        duration: 1.8,
+        ease: "power1.out",
+      });
+    } else {
+      if (tween) tween.kill();
+      gsap.to(barRef, {
+        width: "100%",
+        duration: 0.2,
+        ease: "power2.out",
+        onComplete: () => {
+          gsap.to(barRef, {
+            opacity: 0,
+            duration: 0.22,
+            onComplete: () => {
+              gsap.set(barRef, { width: "0%" });
+            },
+          });
+        },
+      });
+    }
+  });
+
   return (
-    <Show when={isRouting()}>
-      <div class="routing-overlay">
-        <div class="spinner"></div>
-      </div>
-    </Show>
+    <div class="global-progress-track">
+      <div ref={barRef} class="global-progress-bar" />
+    </div>
   );
 }
 
 function MainLayout(props: { children: any }) {
   const [isSidebarOpen, setSidebarOpen] = createSignal(false);
+  const [isSearchOpen, setSearchOpen] = createSignal(false);
   const [pageTitle, setPageTitle] = createSignal("DevPool");
   const data = createAsync(() => getSidebarDataServer());
-  
+
   const [selectedGroupId, setSelectedGroupId] = createSignal<number | null>(null);
   const [selectedCategoryId, setSelectedCategoryId] = createSignal<number | null>(null);
 
   const location = useLocation();
 
-  const groups = () => data()?.categories.filter(c => c.type === "group") || [];
+  const groups = () => data()?.categories.filter((c) => c.type === "group") || [];
 
   // Compute active IDs synchronously based on current URL and data
   const derivedActiveIds = () => {
@@ -116,10 +166,10 @@ function MainLayout(props: { children: any }) {
     let categoryId: number | null = null;
 
     if (currentData) {
-      const activeArticle = currentData.articles.find(a => currentPath.endsWith(`/${a.slug}`));
+      const activeArticle = currentData.articles.find((a) => currentPath.endsWith(`/${a.slug}`));
       if (activeArticle) {
-        let currentParent = currentData.categories.find(c => c.id === activeArticle.chapterId);
-        
+        let currentParent = currentData.categories.find((c) => c.id === activeArticle.chapterId);
+
         while (currentParent) {
           if (currentParent.type === "category") {
             categoryId = currentParent.id;
@@ -130,7 +180,7 @@ function MainLayout(props: { children: any }) {
             break;
           }
           if (currentParent.parentId) {
-            currentParent = currentData.categories.find(c => c.id === currentParent!.parentId);
+            currentParent = currentData.categories.find((c) => c.id === currentParent!.parentId);
           } else {
             break;
           }
@@ -154,96 +204,131 @@ function MainLayout(props: { children: any }) {
     if (!currentGroupId) return null;
     const currentData = data();
 
-    // 1. If user selected a category, check if it belongs to the active group
     if (selectedCategoryId() !== null && currentData) {
-      const cat = currentData.categories.find(c => c.id === selectedCategoryId());
+      const cat = currentData.categories.find((c) => c.id === selectedCategoryId());
       if (cat && cat.parentId === currentGroupId) {
         return selectedCategoryId()!;
       }
     }
-    
-    // 2. Fallback to derived category from URL (if it belongs to active group)
+
     const derived = derivedActiveIds();
     if (derived.groupId === currentGroupId && derived.categoryId) {
       return derived.categoryId;
     }
-    
-    // 3. Fallback to the first category in the active group
+
     if (currentData) {
-      const cats = currentData.categories.filter(c => c.type === "category" && c.parentId === currentGroupId);
+      const cats = currentData.categories.filter((c) => c.type === "category" && c.parentId === currentGroupId);
       if (cats.length > 0) return cats[0].id;
     }
-    
+
     return null;
   };
 
   const setActiveGroupId = (id: number) => {
     setSelectedGroupId(id);
-    setSelectedCategoryId(null); // Reset category selection when group changes
+    setSelectedCategoryId(null);
   };
 
   const setActiveCategoryId = (id: number) => {
     setSelectedCategoryId(id);
   };
 
+  // Build items for Search Modal
+  const searchArticles = createMemo<SearchArticleItem[]>(() => {
+    const currentData = data();
+    if (!currentData) return [];
+
+    const catMap = new Map(currentData.categories.filter((c) => c.type === "category").map((c) => [c.id, c]));
+    const grpMap = new Map(currentData.categories.filter((c) => c.type === "group").map((g) => [g.id, g]));
+    const chapMap = new Map(currentData.categories.filter((c) => c.type === "chapter").map((ch) => [ch.id, ch]));
+
+    return currentData.articles.map((art) => {
+      const chap = chapMap.get(art.chapterId);
+      const cat = chap?.parentId ? catMap.get(chap.parentId) : undefined;
+      const grp = cat?.parentId ? grpMap.get(cat.parentId) : undefined;
+
+      return {
+        id: art.id,
+        title: art.title,
+        slug: art.slug,
+        chapterName: chap?.name,
+        categoryName: cat?.name,
+        groupName: grp?.name,
+        categorySlug: cat?.slug,
+      };
+    });
+  });
+
+  // Global Ctrl+K Shortcut
+  onMount(() => {
+    if (typeof window === "undefined") return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSearchOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
+  });
+
+  const isAdminOrAuth = () => location.pathname.startsWith("/admin") || location.pathname.startsWith("/login");
+
   return (
     <MetaProvider>
       <TitleContext.Provider value={[pageTitle, setPageTitle]}>
-        <GlobalLoader />
-        
-        <div class="app-container">
-          <Suspense>
-            <TopNav 
-              groups={groups()} 
-              activeGroupId={activeGroupId()} 
-              setActiveGroupId={setActiveGroupId}
-              pageTitle={pageTitle()}
-            />
-            
-            <div class="main-wrapper">
-              <div 
-                class={`sidebar-overlay ${isSidebarOpen() ? 'show' : ''}`}
-                onClick={() => setSidebarOpen(false)}
-              ></div>
+        <GlobalProgressBar />
 
-              <Sidebar 
-                isOpen={isSidebarOpen()} 
-                onClose={() => setSidebarOpen(false)}
-                data={data()}
+        <Show
+          when={!isAdminOrAuth()}
+          fallback={
+            <Suspense fallback={null}>
+              {props.children}
+            </Suspense>
+          }
+        >
+          <div class="app-container">
+            <Suspense>
+              {/* TOP NAVIGATION */}
+              <TopNav
+                groups={groups()}
                 activeGroupId={activeGroupId()}
                 setActiveGroupId={setActiveGroupId}
-                activeCategoryId={activeCategoryId()}
-                setActiveCategoryId={setActiveCategoryId}
+                pageTitle={pageTitle()}
+                isAdmin={data()?.isAdmin}
+                onOpenSearch={() => setSearchOpen(true)}
+                onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
               />
-              
-              <main class="main-content">
-                {props.children}
-              </main>
-            </div>
 
-            <div class="mobile-header">
-              <button class="hamburger-btn" onClick={() => setSidebarOpen(true)}>
-                ☰
-              </button>
-              <div class="mobile-brand">{pageTitle()}</div>
-              <button 
-                onClick={() => {
-                  if ('caches' in window) {
-                    caches.keys().then(names => names.forEach(n => caches.delete(n)));
-                  }
-                  window.location.reload();
-                }}
-                title="Tải lại trang (Xóa cache)"
-                style={{ color: "var(--text-muted)", "font-size": "1.1rem", padding: "0.25rem", display: "flex", "align-items": "center", "justify-content": "center" }}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-                  <path d="M21 3v5h-5" />
-                </svg>
-              </button>
-            </div>
-          </Suspense>
-        </div>
+              {/* MAIN BODY: SIDEBAR + CONTENT */}
+              <div class="main-wrapper">
+                <div
+                  class={`sidebar-overlay ${isSidebarOpen() ? "show" : ""}`}
+                  onClick={() => setSidebarOpen(false)}
+                />
+
+                <Sidebar
+                  isOpen={isSidebarOpen()}
+                  onClose={() => setSidebarOpen(false)}
+                  data={data()}
+                  activeGroupId={activeGroupId()}
+                  setActiveGroupId={setActiveGroupId}
+                  activeCategoryId={activeCategoryId()}
+                  setActiveCategoryId={setActiveCategoryId}
+                />
+
+                <main class="main-content">{props.children}</main>
+              </div>
+
+              {/* SEARCH PALETTE MODAL */}
+              <SearchModal
+                isOpen={isSearchOpen()}
+                onClose={() => setSearchOpen(false)}
+                articles={searchArticles()}
+              />
+            </Suspense>
+          </div>
+        </Show>
       </TitleContext.Provider>
     </MetaProvider>
   );
@@ -251,11 +336,7 @@ function MainLayout(props: { children: any }) {
 
 export default function App() {
   return (
-    <Router
-      root={props => (
-        <MainLayout>{props.children}</MainLayout>
-      )}
-    >
+    <Router root={(props) => <MainLayout>{props.children}</MainLayout>}>
       <FileRoutes />
     </Router>
   );

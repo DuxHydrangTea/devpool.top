@@ -1,480 +1,434 @@
-import { For, Show, createSignal } from "solid-js";
-import { A, useLocation, useAction, revalidate } from "@solidjs/router";
-import { updateCategoryNameServer, updateArticleTitleServer } from "~/app";
+import { For, Show, createSignal, createMemo, onMount, createEffect } from "solid-js";
+import { A, useLocation } from "@solidjs/router";
+import gsap from "gsap";
 
-export interface Category { id: number; name: string; type: string; parentId: number | null; order: number; slug: string; }
-export interface Article { id: number; title: string; chapterId: number; order: number; slug: string; }
-export interface SidebarData { categories: Category[]; articles: Article[]; isAdmin?: boolean; }
+export interface Category {
+  id: number;
+  name: string;
+  type: string;
+  parentId: number | null;
+  order: number;
+  slug: string;
+}
 
-const ChapterNode = (props: {
-  chapter: Category,
-  getChapters: (id: number) => Category[],
-  getArticles: (id: number) => Article[],
-  location: any,
-  onClose?: () => void,
-  categorySlug?: string,
-  isAdmin?: boolean,
-  editingId?: number | null,
-  editingName?: string,
-  onStartEdit?: (category: Category) => void,
-  onCancelEdit?: () => void,
-  onSaveEdit?: (id: number) => void,
-  onSetEditingName?: (val: string) => void,
-  editingArticleId?: number | null,
-  editingArticleTitle?: string,
-  onStartEditArticle?: (article: Article) => void,
-  onCancelEditArticle?: () => void,
-  onSaveEditArticle?: (id: number) => void,
-  onSetEditingArticleTitle?: (val: string) => void,
-}) => {
+export interface Article {
+  id: number;
+  title: string;
+  chapterId: number;
+  order: number;
+  slug: string;
+}
+
+export interface SidebarData {
+  categories: Category[];
+  articles: Article[];
+  isAdmin?: boolean;
+}
+
+// Recursive Chapter Node Component
+function ChapterNode(props: {
+  chapter: Category;
+  categorySlug?: string;
+  getChapters: (id: number) => Category[];
+  getArticles: (id: number) => Article[];
+  filterText: string;
+  onClose?: () => void;
+}) {
+  const location = useLocation();
+  const [isCollapsed, setIsCollapsed] = createSignal(false);
+  let contentRef: HTMLDivElement | undefined;
+
+  const subChapters = () => props.getChapters(props.chapter.id);
+  const chapterArticles = () => props.getArticles(props.chapter.id);
+
+  // Check if this chapter or any descendant has articles matching filter
+  const hasContent = () => {
+    if (!props.filterText) return true;
+    if (chapterArticles().length > 0) return true;
+    const checkSub = (sub: Category): boolean => {
+      if (props.getArticles(sub.id).length > 0) return true;
+      return props.getChapters(sub.id).some(checkSub);
+    };
+    return subChapters().some(checkSub);
+  };
+
+  const handleToggle = () => {
+    const nextState = !isCollapsed();
+    if (typeof window !== "undefined" && contentRef) {
+      if (nextState) {
+        // Collapsing
+        gsap.to(contentRef, {
+          height: 0,
+          opacity: 0,
+          duration: 0.22,
+          ease: "power2.inOut",
+          onComplete: () => setIsCollapsed(true),
+        });
+      } else {
+        // Expanding
+        setIsCollapsed(false);
+        gsap.fromTo(
+          contentRef,
+          { height: 0, opacity: 0 },
+          { height: "auto", opacity: 1, duration: 0.28, ease: "power2.out" }
+        );
+      }
+    } else {
+      setIsCollapsed(nextState);
+    }
+  };
+
   return (
-    <div style={{"margin-bottom": "0.5rem"}}>
-      <div class="chapter-title flex justify-between items-center" style={{ "user-select": "none", "margin-bottom": "0.25rem" }}>
-        <Show
-          when={props.editingId === props.chapter.id}
-          fallback={
-            <div class="flex items-center gap-2">
-              <i class={`fas fa-folder-open chapter-icon`}></i>
-              <span>{props.chapter.name}</span>
-              <Show when={props.isAdmin}>
-                <button
-                  class="cat-edit-btn"
-                  title="Sửa tên chương"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    props.onStartEdit?.(props.chapter);
-                  }}
-                >
-                  <i class="fas fa-pencil-alt"></i>
-                </button>
-              </Show>
-            </div>
-          }
+    <Show when={hasContent()}>
+      <div class="sidebar-chap-block">
+        {/* Chapter Header */}
+        <button
+          class="sidebar-chap-header"
+          onClick={handleToggle}
         >
-          <div class="inline-edit-box" onClick={(e) => e.stopPropagation()}>
-            <input
-              type="text"
-              class="inline-edit-input"
-              value={props.editingName}
-              onInput={(e) => props.onSetEditingName?.(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") props.onSaveEdit?.(props.chapter.id);
-                if (e.key === "Escape") props.onCancelEdit?.();
-              }}
-              ref={(el) => setTimeout(() => el?.focus(), 10)}
-            />
-            <button onClick={() => props.onSaveEdit?.(props.chapter.id)} class="cat-save-btn" title="Lưu">
-              <i class="fas fa-check"></i>
-            </button>
-            <button onClick={() => props.onCancelEdit?.()} class="cat-cancel-btn" title="Hủy">
-              <i class="fas fa-times"></i>
-            </button>
+          <span class="sidebar-chap-title">
+            <span class="sidebar-mini-chevron">{isCollapsed() ? "▸" : "▾"}</span>
+            <span class="chap-icon">📑</span>
+            <span class="chap-name-text">{props.chapter.name}</span>
+          </span>
+          <Show when={chapterArticles().length > 0}>
+            <span class="sidebar-art-count">{chapterArticles().length}</span>
+          </Show>
+        </button>
+
+        {/* Chapter Articles & Subchapters */}
+        <Show when={!isCollapsed()}>
+          <div ref={contentRef} class="sidebar-chap-content">
+            {/* Direct articles in this chapter */}
+            <Show when={chapterArticles().length > 0}>
+              <ul class="sidebar-art-list">
+                <For each={chapterArticles()}>
+                  {(art) => {
+                    const path = props.categorySlug ? `/docs/${props.categorySlug}/${art.slug}` : `/docs/${art.slug}`;
+                    const isActive = location.pathname === path || location.pathname.endsWith(`/${art.slug}`);
+
+                    const handleMouseEnter = (e: MouseEvent) => {
+                      if (typeof window === "undefined") return;
+                      const target = e.currentTarget as HTMLElement;
+                      const bullet = target.querySelector(".art-bullet");
+                      gsap.to(target, { x: 4, duration: 0.18, ease: "power2.out" });
+                      if (bullet) gsap.to(bullet, { scale: 1.4, color: "#34d399", duration: 0.18 });
+                    };
+
+                    const handleMouseLeave = (e: MouseEvent) => {
+                      if (typeof window === "undefined") return;
+                      const target = e.currentTarget as HTMLElement;
+                      const bullet = target.querySelector(".art-bullet");
+                      gsap.to(target, { x: 0, duration: 0.22, ease: "power2.inOut" });
+                      if (bullet) gsap.to(bullet, { scale: 1, color: "inherit", duration: 0.22 });
+                    };
+
+                    return (
+                      <li>
+                        <A
+                          href={path}
+                          class={`sidebar-art-link ${isActive ? "active" : ""}`}
+                          onMouseEnter={handleMouseEnter}
+                          onMouseLeave={handleMouseLeave}
+                          onClick={() => {
+                            if (props.onClose) props.onClose();
+                          }}
+                        >
+                          <span class="art-bullet">•</span>
+                          <span class="art-title-text">{art.title}</span>
+                        </A>
+                      </li>
+                    );
+                  }}
+                </For>
+              </ul>
+            </Show>
+
+            {/* Recursive Sub-chapters */}
+            <Show when={subChapters().length > 0}>
+              <div class="sidebar-subchapters-list">
+                <For each={subChapters()}>
+                  {(sub) => (
+                    <ChapterNode
+                      chapter={sub}
+                      categorySlug={props.categorySlug}
+                      getChapters={props.getChapters}
+                      getArticles={props.getArticles}
+                      filterText={props.filterText}
+                      onClose={props.onClose}
+                    />
+                  )}
+                </For>
+              </div>
+            </Show>
           </div>
         </Show>
       </div>
-      <ul class="article-list-container" style={{ "margin-left": "0.5rem", "border-left": "1px solid var(--border-color)", "padding-left": "0.5rem" }}>
-        <For each={props.getChapters(props.chapter.id)}>
-          {(sub) => (
-            <ChapterNode
-              chapter={sub}
-              getChapters={props.getChapters}
-              getArticles={props.getArticles}
-              location={props.location}
-              onClose={props.onClose}
-              categorySlug={props.categorySlug}
-              isAdmin={props.isAdmin}
-              editingId={props.editingId}
-              editingName={props.editingName}
-              onStartEdit={props.onStartEdit}
-              onCancelEdit={props.onCancelEdit}
-              onSaveEdit={props.onSaveEdit}
-              onSetEditingName={props.onSetEditingName}
-              editingArticleId={props.editingArticleId}
-              editingArticleTitle={props.editingArticleTitle}
-              onStartEditArticle={props.onStartEditArticle}
-              onCancelEditArticle={props.onCancelEditArticle}
-              onSaveEditArticle={props.onSaveEditArticle}
-              onSetEditingArticleTitle={props.onSetEditingArticleTitle}
-            />
-          )}
-        </For>
-        <For each={props.getArticles(props.chapter.id)}>
-          {(article) => {
-            const path = props.categorySlug ? `/docs/${props.categorySlug}/${article.slug}` : `/docs/${article.slug}`;
-            const isActive = props.location.pathname === path || props.location.pathname.endsWith(`/${article.slug}`);
-            return (
-              <li>
-                <Show
-                  when={props.editingArticleId === article.id}
-                  fallback={
-                    <div style={{ display: "flex", "align-items": "center", "justify-content": "space-between", width: "100%" }}>
-                      <A
-                        href={path}
-                        class={`article-link ${isActive ? "active" : ""}`}
-                        onClick={() => {
-                          if (props.onClose) props.onClose();
-                        }}
-                        style={{ flex: "1" }}
-                      >
-                        {article.title}
-                      </A>
-                      <Show when={props.isAdmin}>
-                        <button
-                          class="cat-edit-btn"
-                          title="Sửa tiêu đề bài viết"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            e.preventDefault();
-                            props.onStartEditArticle?.(article);
-                          }}
-                        >
-                          <i class="fas fa-pencil-alt"></i>
-                        </button>
-                      </Show>
-                    </div>
-                  }
-                >
-                  <div class="inline-edit-box" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="text"
-                      class="inline-edit-input"
-                      value={props.editingArticleTitle}
-                      onInput={(e) => props.onSetEditingArticleTitle?.(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") props.onSaveEditArticle?.(article.id);
-                        if (e.key === "Escape") props.onCancelEditArticle?.();
-                      }}
-                      ref={(el) => setTimeout(() => el?.focus(), 10)}
-                    />
-                    <button onClick={() => props.onSaveEditArticle?.(article.id)} class="cat-save-btn" title="Lưu">
-                      <i class="fas fa-check"></i>
-                    </button>
-                    <button onClick={() => props.onCancelEditArticle?.()} class="cat-cancel-btn" title="Hủy">
-                      <i class="fas fa-times"></i>
-                    </button>
-                  </div>
-                </Show>
-              </li>
-            );
-          }}
-        </For>
-      </ul>
-    </div>
+    </Show>
   );
-};
+}
 
-export default function Sidebar(props: { 
-  isOpen?: boolean; 
-  onClose?: () => void;
-  data: SidebarData | undefined;
+export default function Sidebar(props: {
+  isOpen: boolean;
+  onClose: () => void;
+  data?: SidebarData;
   activeGroupId: number | null;
   setActiveGroupId: (id: number) => void;
   activeCategoryId: number | null;
   setActiveCategoryId: (id: number) => void;
 }) {
   const location = useLocation();
-  const updateCategoryName = useAction(updateCategoryNameServer);
-  const updateArticleTitle = useAction(updateArticleTitleServer);
+  const [filterText, setFilterText] = createSignal("");
+  const [collapsedCats, setCollapsedCats] = createSignal<Record<number, boolean>>({});
+  let listContainerRef: HTMLDivElement | undefined;
+  let trackLabelRef: HTMLDivElement | undefined;
 
-  const [editingId, setEditingId] = createSignal<number | null>(null);
-  const [editingName, setEditingName] = createSignal<string>("");
-
-  const [editingArticleId, setEditingArticleId] = createSignal<number | null>(null);
-  const [editingArticleTitle, setEditingArticleTitle] = createSignal<string>("");
-
-  const startEdit = (category: Category) => {
-    setEditingId(category.id);
-    setEditingName(category.name);
+  const toggleCategory = (catId: number) => {
+    setCollapsedCats((prev) => ({ ...prev, [catId]: !prev[catId] }));
   };
 
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditingName("");
-  };
+  const categories = () => props.data?.categories || [];
+  const articles = () => props.data?.articles || [];
 
-  const handleSave = async (id: number) => {
-    if (!editingName().trim()) return;
-    try {
-      await updateCategoryName({ id, name: editingName().trim() });
-      revalidate("sidebar-data");
-      cancelEdit();
-    } catch (err) {
-      console.error(err);
-      alert("Lỗi khi cập nhật tên!");
+  // Groups (Level 1)
+  const groups = createMemo(() => categories().filter((c) => c.type === "group"));
+  const activeGroup = createMemo(() => {
+    if (props.activeGroupId) {
+      const found = groups().find((g) => g.id === props.activeGroupId);
+      if (found) return found;
     }
-  };
+    return groups()[0];
+  });
 
-  const startEditArticle = (article: Article) => {
-    setEditingArticleId(article.id);
-    setEditingArticleTitle(article.title);
-  };
-
-  const cancelEditArticle = () => {
-    setEditingArticleId(null);
-    setEditingArticleTitle("");
-  };
-
-  const handleSaveArticle = async (id: number) => {
-    if (!editingArticleTitle().trim()) return;
-    try {
-      await updateArticleTitle({ id, title: editingArticleTitle().trim() });
-      revalidate("sidebar-data");
-      revalidate("doc-article");
-      cancelEditArticle();
-    } catch (err) {
-      console.error(err);
-      alert("Lỗi khi cập nhật tiêu đề bài viết!");
+  // Categories under active group (Level 2)
+  const activeCategories = createMemo(() => {
+    const grp = activeGroup();
+    if (!grp) {
+      return categories().filter((c) => c.type === "category" && c.parentId === null);
     }
+    return categories().filter((c) => c.type === "category" && c.parentId === grp.id);
+  });
+
+  // Get child chapters or child sub-categories under any parent category/chapter
+  const getChapters = (parentId: number) => {
+    return categories().filter(
+      (c) => (c.type === "chapter" || c.type === "category") && c.parentId === parentId
+    );
   };
 
-  const getCategories = (groupId: number) => props.data?.categories.filter(c => c.type === "category" && c.parentId === groupId) || [];
-  const getChapters = (catId: number) => props.data?.categories.filter(c => c.type === "chapter" && c.parentId === catId) || [];
-  const getArticles = (chapId: number) => props.data?.articles.filter(a => a.chapterId === chapId) || [];
+  // Get direct articles assigned to a chapter or category ID
+  const getArticles = (chapterOrCatId: number) => {
+    const arts = articles().filter((a) => a.chapterId === chapterOrCatId);
+    const filter = filterText().toLowerCase().trim();
+    if (!filter) return arts;
+    return arts.filter(
+      (a) => a.title.toLowerCase().includes(filter) || a.slug.toLowerCase().includes(filter)
+    );
+  };
+
+  // GSAP: Animate category blocks ONLY on actual track change (different group ID)
+  let lastAnimatedGroupId: number | null = null;
+  createEffect(() => {
+    const currentGroupId = props.activeGroupId;
+    if (currentGroupId === null || currentGroupId === undefined) return;
+
+    // Only run stagger animation if the user actually switched to a DIFFERENT group
+    if (currentGroupId !== lastAnimatedGroupId) {
+      lastAnimatedGroupId = currentGroupId;
+
+      if (typeof window !== "undefined" && listContainerRef) {
+        // Animate track badge
+        if (trackLabelRef) {
+          gsap.fromTo(
+            trackLabelRef,
+            { opacity: 0, x: -8 },
+            { opacity: 1, x: 0, duration: 0.3, ease: "power2.out" }
+          );
+        }
+
+        // Animate category blocks stagger
+        const blocks = listContainerRef.querySelectorAll(".sidebar-cat-block");
+        if (blocks.length > 0) {
+          gsap.fromTo(
+            blocks,
+            { opacity: 0, y: 12, scale: 0.98 },
+            {
+              opacity: 1,
+              y: 0,
+              scale: 1,
+              duration: 0.35,
+              stagger: 0.04,
+              ease: "power2.out",
+            }
+          );
+        }
+      }
+    }
+  });
+
+  // GSAP: Animate filtered articles on search input
+  createEffect(() => {
+    const filter = filterText();
+    if (typeof window !== "undefined" && listContainerRef && filter) {
+      const items = listContainerRef.querySelectorAll(".sidebar-art-link");
+      if (items.length > 0) {
+        gsap.fromTo(
+          items,
+          { opacity: 0, x: -6 },
+          { opacity: 1, x: 0, duration: 0.22, stagger: 0.02, ease: "power1.out" }
+        );
+      }
+    }
+  });
 
   return (
-    <nav class={`sidebar ${props.isOpen ? 'open' : ''}`}>
-      <Show when={!props.data}>
-        <div class="p-6 text-emerald-400 text-sm animate-pulse text-center">Loading data...</div>
-      </Show>
-
-      <Show when={props.data}>
-        <div style={{ position: "sticky", top: "0", "z-index": 40, "background-color": "var(--bg-primary)" }}>
-          {/* GROUP TABS - chỉ hiện trên mobile (ẩn bởi CSS trên desktop) */}
-          <Show when={props.data?.categories.filter(c => c.type === "group").length}>
-            <div class="sidebar-group-tabs mobile-group-selector">
-              <For each={props.data!.categories.filter(c => c.type === "group")}>
-                {(group) => (
-                  <Show
-                    when={editingId() === group.id}
-                    fallback={
-                      <div style={{ display: "inline-flex", "align-items": "center", gap: "0.2rem" }}>
-                        <button
-                          class={`sidebar-tab ${props.activeGroupId === group.id ? "active" : ""}`}
-                          onClick={() => props.setActiveGroupId(group.id)}
-                          style={{ "font-size": "0.75rem" }}
-                        >
-                          {group.name}
-                        </button>
-                        <Show when={props.data?.isAdmin}>
-                          <button
-                            class="cat-edit-btn"
-                            title="Sửa tên nhóm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              startEdit(group);
-                            }}
-                          >
-                            <i class="fas fa-pencil-alt"></i>
-                          </button>
-                        </Show>
-                      </div>
-                    }
-                  >
-                    <div class="inline-edit-box" onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="text"
-                        class="inline-edit-input"
-                        value={editingName()}
-                        onInput={(e) => setEditingName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleSave(group.id);
-                          if (e.key === "Escape") cancelEdit();
-                        }}
-                        ref={(el) => setTimeout(() => el?.focus(), 10)}
-                      />
-                      <button onClick={() => handleSave(group.id)} class="cat-save-btn" title="Lưu">
-                        <i class="fas fa-check"></i>
-                      </button>
-                      <button onClick={cancelEdit} class="cat-cancel-btn" title="Hủy">
-                        <i class="fas fa-times"></i>
-                      </button>
-                    </div>
-                  </Show>
-                )}
-              </For>
-            </div>
-          </Show>
-
-          {/* SUB-TABS (Categories) */}
-          <Show when={props.activeGroupId}>
-            {(groupId) => (
-              <div class="sidebar-tabs sub-tabs" style={{ position: "static", "background-color": "rgba(15, 23, 42, 0.98)", "padding-top": "0.5rem", "border-bottom": "1px solid var(--border-color)" }}>
-                <div style={{ width: "100%", "font-size": "0.6rem", "text-transform": "uppercase", "letter-spacing": "0.05em", color: "var(--text-muted)", "margin-bottom": "0.25rem", "padding-left": "0.25rem", display: "flex", "align-items": "center", gap: "0.25rem" }}>
-                  <i class="fas fa-level-down-alt"></i>
-                  <span>Chuyên mục</span>
-                </div>
-                <For each={getCategories(groupId())}>
-                  {(category, index) => (
-                    <Show
-                      when={editingId() === category.id}
-                      fallback={
-                        <div style={{ display: "inline-flex", "align-items": "center", gap: "0.2rem" }}>
-                          <button
-                            class={`sidebar-tab sub-tab ${props.activeCategoryId === category.id ? "active" : ""}`}
-                            onClick={() => props.setActiveCategoryId(category.id)}
-                            style={{ "font-size": "0.7rem", padding: "0.25rem" }}
-                          >
-                            <span style={{ "font-family": "var(--font-mono)", opacity: 0.5, "font-size": "0.8em", "margin-right": "0.2em" }}>{index() + 1}.</span>
-                            {category.name}
-                          </button>
-                          <Show when={props.data?.isAdmin}>
-                            <button
-                              class="cat-edit-btn"
-                              title="Sửa tên chuyên mục"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                startEdit(category);
-                              }}
-                            >
-                              <i class="fas fa-pencil-alt"></i>
-                            </button>
-                          </Show>
-                        </div>
-                      }
-                    >
-                      <div class="inline-edit-box" onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="text"
-                          class="inline-edit-input"
-                          value={editingName()}
-                          onInput={(e) => setEditingName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") handleSave(category.id);
-                            if (e.key === "Escape") cancelEdit();
-                          }}
-                          ref={(el) => setTimeout(() => el?.focus(), 10)}
-                        />
-                        <button onClick={() => handleSave(category.id)} class="cat-save-btn" title="Lưu">
-                          <i class="fas fa-check"></i>
-                        </button>
-                        <button onClick={cancelEdit} class="cat-cancel-btn" title="Hủy">
-                          <i class="fas fa-times"></i>
-                        </button>
-                      </div>
-                    </Show>
-                  )}
-                </For>
-              </div>
-            )}
-          </Show>
+    <aside class={`client-sidebar ${props.isOpen ? "open" : ""}`}>
+      {/* Sidebar Header with Track Picker & Search */}
+      <div class="sidebar-top-section">
+        {/* Track Label with GSAP entry */}
+        <div ref={trackLabelRef} class="sidebar-track-label">
+          <span class="track-icon">📚</span>
+          <span class="track-name">{activeGroup()?.name || "Tài liệu lập trình"}</span>
         </div>
 
-        {/* CÂY THƯ MỤC */}
-        <div class="sidebar-tree pt-2">
-          <Show when={props.activeCategoryId}>
-            {(categoryId) => (
-              <div class="category-group" style={{ "padding-top": "0" }}>
-                <div class="chapter-group">
-                  {/* Render các bài viết trực tiếp thuộc Category (không nằm trong Chapter nào) */}
-                  <ul class="article-list-container">
-                    <For each={getArticles(categoryId())}>
-                      {(article) => {
-                        const catSlug = props.data?.categories.find(c => c.id === categoryId())?.slug;
-                        const path = catSlug ? `/docs/${catSlug}/${article.slug}` : `/docs/${article.slug}`;
-                        const isActive = location.pathname === path || location.pathname.endsWith(`/${article.slug}`);
-                        return (
-                          <li>
-                            <Show
-                              when={editingArticleId() === article.id}
-                              fallback={
-                                <div style={{ display: "flex", "align-items": "center", "justify-content": "space-between", width: "100%" }}>
-                                  <A
-                                    href={path}
-                                    class={`article-link ${isActive ? "active" : ""}`}
-                                    onClick={() => {
-                                      if (props.onClose) props.onClose();
-                                    }}
-                                    style={{ flex: "1" }}
-                                  >
-                                    <i class="far fa-file-alt" style={{ "margin-right": "0.5rem", "font-size": "0.8em", opacity: 0.7 }}></i>
-                                    {article.title}
-                                  </A>
-                                  <Show when={props.data?.isAdmin}>
-                                    <button
-                                      class="cat-edit-btn"
-                                      title="Sửa tiêu đề bài viết"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        e.preventDefault();
-                                        startEditArticle(article);
+        {/* Live Filter in Sidebar */}
+        <div class="sidebar-filter-wrapper">
+          <svg class="sidebar-filter-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="text"
+            class="sidebar-filter-input"
+            placeholder="Lọc bài viết trong mục này..."
+            value={filterText()}
+            onInput={(e) => setFilterText(e.currentTarget.value)}
+          />
+          <Show when={filterText()}>
+            <button class="sidebar-filter-clear" onClick={() => setFilterText("")}>
+              &times;
+            </button>
+          </Show>
+        </div>
+      </div>
+
+      {/* Tree Content */}
+      <div class="sidebar-scroll-area">
+        <Show
+          when={activeCategories().length > 0}
+          fallback={
+            <div class="sidebar-empty-state">
+              <p class="text-xs text-slate-500">Chưa có chuyên mục nào trong nhóm này.</p>
+            </div>
+          }
+        >
+          <div ref={listContainerRef} class="sidebar-category-list">
+            <For each={activeCategories()}>
+              {(cat) => {
+                const chaps = getChapters(cat.id);
+                const directArticles = getArticles(cat.id);
+                const isCollapsed = () => !!collapsedCats()[cat.id];
+
+                // Total articles count across category and its chapters
+                const totalArticlesCount = () => {
+                  let total = directArticles.length;
+                  const countSub = (cId: number) => {
+                    const subArts = getArticles(cId);
+                    total += subArts.length;
+                    getChapters(cId).forEach((sub) => countSub(sub.id));
+                  };
+                  chaps.forEach((ch) => countSub(ch.id));
+                  return total;
+                };
+
+                return (
+                  <div class="sidebar-cat-block">
+                    {/* Category Header (Collapsible) */}
+                    <button
+                      class="sidebar-cat-header"
+                      onClick={() => toggleCategory(cat.id)}
+                    >
+                      <span class="sidebar-cat-title">
+                        <span class="sidebar-chevron">{isCollapsed() ? "▶" : "▼"}</span>
+                        <span>{cat.name}</span>
+                      </span>
+                      <Show when={totalArticlesCount() > 0}>
+                        <span class="sidebar-cat-count">{totalArticlesCount()}</span>
+                      </Show>
+                    </button>
+
+                    {/* Category Content: Direct Articles & Chapters */}
+                    <Show when={!isCollapsed()}>
+                      <div class="sidebar-chapters-wrapper">
+                        {/* 1. Direct Articles in Category */}
+                        <Show when={directArticles.length > 0}>
+                          <ul class="sidebar-art-list">
+                            <For each={directArticles}>
+                              {(art) => {
+                                const path = cat.slug ? `/docs/${cat.slug}/${art.slug}` : `/docs/${art.slug}`;
+                                const isActive =
+                                  location.pathname === path || location.pathname.endsWith(`/${art.slug}`);
+
+                                const handleMouseEnter = (e: MouseEvent) => {
+                                  if (typeof window === "undefined") return;
+                                  const target = e.currentTarget as HTMLElement;
+                                  const bullet = target.querySelector(".art-bullet");
+                                  gsap.to(target, { x: 4, duration: 0.18, ease: "power2.out" });
+                                  if (bullet) gsap.to(bullet, { scale: 1.4, color: "#34d399", duration: 0.18 });
+                                };
+
+                                const handleMouseLeave = (e: MouseEvent) => {
+                                  if (typeof window === "undefined") return;
+                                  const target = e.currentTarget as HTMLElement;
+                                  const bullet = target.querySelector(".art-bullet");
+                                  gsap.to(target, { x: 0, duration: 0.22, ease: "power2.inOut" });
+                                  if (bullet) gsap.to(bullet, { scale: 1, color: "inherit", duration: 0.22 });
+                                };
+
+                                return (
+                                  <li>
+                                    <A
+                                      href={path}
+                                      class={`sidebar-art-link ${isActive ? "active" : ""}`}
+                                      onMouseEnter={handleMouseEnter}
+                                      onMouseLeave={handleMouseLeave}
+                                      onClick={() => {
+                                        if (props.onClose) props.onClose();
                                       }}
                                     >
-                                      <i class="fas fa-pencil-alt"></i>
-                                    </button>
-                                  </Show>
-                                </div>
-                              }
-                            >
-                              <div class="inline-edit-box" onClick={(e) => e.stopPropagation()}>
-                                <input
-                                  type="text"
-                                  class="inline-edit-input"
-                                  value={editingArticleTitle()}
-                                  onInput={(e) => setEditingArticleTitle(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter") handleSaveArticle(article.id);
-                                    if (e.key === "Escape") cancelEditArticle();
-                                  }}
-                                  ref={(el) => setTimeout(() => el?.focus(), 10)}
-                                />
-                                <button onClick={() => handleSaveArticle(article.id)} class="cat-save-btn" title="Lưu">
-                                  <i class="fas fa-check"></i>
-                                </button>
-                                <button onClick={cancelEditArticle} class="cat-cancel-btn" title="Hủy">
-                                  <i class="fas fa-times"></i>
-                                </button>
-                              </div>
-                            </Show>
-                          </li>
-                        );
-                      }}
-                    </For>
-                  </ul>
+                                      <span class="art-bullet">•</span>
+                                      <span class="art-title-text">{art.title}</span>
+                                    </A>
+                                  </li>
+                                );
+                              }}
+                            </For>
+                          </ul>
+                        </Show>
 
-                  {/* Render các thư mục con đệ quy */}
-                  <For each={getChapters(categoryId())}>
-                    {(chapter) => (
-                      <ChapterNode
-                        chapter={chapter}
-                        getChapters={getChapters}
-                        getArticles={getArticles}
-                        location={location}
-                        onClose={props.onClose}
-                        categorySlug={props.data?.categories.find(c => c.id === categoryId())?.slug}
-                        isAdmin={props.data?.isAdmin}
-                        editingId={editingId()}
-                        editingName={editingName()}
-                        onStartEdit={startEdit}
-                        onCancelEdit={cancelEdit}
-                        onSaveEdit={handleSave}
-                        onSetEditingName={setEditingName}
-                        editingArticleId={editingArticleId()}
-                        editingArticleTitle={editingArticleTitle()}
-                        onStartEditArticle={startEditArticle}
-                        onCancelEditArticle={cancelEditArticle}
-                        onSaveEditArticle={handleSaveArticle}
-                        onSetEditingArticleTitle={setEditingArticleTitle}
-                      />
-                    )}
-                  </For>
-                </div>
-              </div>
-            )}
-          </Show>
-        </div>
-      </Show>
-
-      {/* FOOTER ĐÓNG SIDEBAR TRÊN MOBILE */}
-      <div class="sidebar-footer mobile-only" style={{ "margin-top": "auto", "border-top": "1px solid var(--border-color)", padding: "1rem", "background-color": "var(--bg-primary)", position: "sticky", bottom: "0", "z-index": 40 }}>
-        <button 
-          onClick={() => {
-            if (props.onClose) props.onClose();
-          }}
-          style={{ width: "100%", padding: "0.75rem", "background-color": "var(--bg-secondary)", color: "var(--text-primary)", "border-radius": "0.375rem", display: "flex", "align-items": "center", "justify-content": "center", gap: "0.5rem", "font-weight": "600", "font-size": "0.875rem" }}
-        >
-          <i class="fas fa-times"></i> Đóng Menu
-        </button>
+                        {/* 2. Recursive Chapters */}
+                        <Show when={chaps.length > 0}>
+                          <For each={chaps}>
+                            {(chap) => (
+                              <ChapterNode
+                                chapter={chap}
+                                categorySlug={cat.slug}
+                                getChapters={getChapters}
+                                getArticles={getArticles}
+                                filterText={filterText()}
+                                onClose={props.onClose}
+                              />
+                            )}
+                          </For>
+                        </Show>
+                      </div>
+                    </Show>
+                  </div>
+                );
+              }}
+            </For>
+          </div>
+        </Show>
       </div>
-    </nav>
+    </aside>
   );
 }

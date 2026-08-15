@@ -1,6 +1,6 @@
-import { For, Show, createSignal } from "solid-js";
-import { A, useAction, revalidate } from "@solidjs/router";
-import { updateCategoryNameServer } from "~/app";
+import { For, Show, onMount } from "solid-js";
+import { A } from "@solidjs/router";
+import gsap from "gsap";
 
 interface Group {
   id: number;
@@ -13,109 +13,145 @@ export default function TopNav(props: {
   setActiveGroupId: (id: number) => void;
   pageTitle: string;
   isAdmin?: boolean;
+  onOpenSearch?: () => void;
+  onToggleSidebar?: () => void;
 }) {
-  const updateCategoryName = useAction(updateCategoryNameServer);
-  const [editingId, setEditingId] = createSignal<number | null>(null);
-  const [editingName, setEditingName] = createSignal<string>("");
+  let navHeaderRef: HTMLElement | undefined;
 
-  const startEdit = (group: Group) => {
-    setEditingId(group.id);
-    setEditingName(group.name);
-  };
+  onMount(() => {
+    if (typeof window !== "undefined" && navHeaderRef) {
+      // 1. Animate brand identity on entry
+      gsap.fromTo(
+        navHeaderRef.querySelector(".client-brand-group"),
+        { opacity: 0, x: -14 },
+        { opacity: 1, x: 0, duration: 0.45, ease: "power2.out" }
+      );
 
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditingName("");
-  };
+      // 2. Animate navigation track tabs with spring stagger
+      const tabs = navHeaderRef.querySelectorAll(".client-nav-tab");
+      if (tabs.length > 0) {
+        gsap.fromTo(
+          tabs,
+          { opacity: 0, y: -10, scale: 0.95 },
+          {
+            opacity: 1,
+            y: 0,
+            scale: 1,
+            duration: 0.4,
+            stagger: 0.05,
+            ease: "back.out(1.4)",
+            delay: 0.1,
+          }
+        );
+      }
 
-  const handleSave = async (id: number) => {
-    if (!editingName().trim()) return;
-    try {
-      await updateCategoryName({ id, name: editingName().trim() });
-      revalidate("sidebar-data");
-      cancelEdit();
-    } catch (err) {
-      console.error(err);
-      alert("Lỗi khi cập nhật tên!");
+      // 3. Animate right-side actions cluster
+      gsap.fromTo(
+        navHeaderRef.querySelector(".client-nav-actions"),
+        { opacity: 0, x: 14 },
+        { opacity: 1, x: 0, duration: 0.45, ease: "power2.out", delay: 0.15 }
+      );
+    }
+  });
+
+  const handleTabClick = (e: MouseEvent, groupId: number) => {
+    props.setActiveGroupId(groupId);
+    if (typeof window !== "undefined") {
+      const target = e.currentTarget as HTMLElement;
+      gsap.fromTo(
+        target,
+        { scale: 0.93 },
+        { scale: 1, duration: 0.3, ease: "back.out(2)" }
+      );
     }
   };
 
   return (
-    <header class="top-nav">
-      <div class="top-nav-brand">
-        <A href="/" class="brand-link">
-          {props.pageTitle}
-        </A>
-      </div>
-
-      <div class="top-nav-tabs">
-        <For each={props.groups}>
-          {(group) => (
-            <Show
-              when={editingId() === group.id}
-              fallback={
-                <div style={{ display: "inline-flex", "align-items": "center", gap: "0.2rem" }}>
-                  <button
-                    class={`top-nav-tab ${props.activeGroupId === group.id ? "active" : ""}`}
-                    onClick={() => props.setActiveGroupId(group.id)}
-                  >
-                    {group.name}
-                  </button>
-                  <Show when={props.isAdmin}>
-                    <button
-                      class="cat-edit-btn"
-                      title="Sửa tên nhóm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        startEdit(group);
-                      }}
-                    >
-                      <i class="fas fa-pencil-alt"></i>
-                    </button>
-                  </Show>
-                </div>
-              }
+    <header ref={navHeaderRef} class="client-top-nav">
+      <div class="client-nav-inner">
+        {/* Left: Mobile hamburger & Brand */}
+        <div class="client-brand-group">
+          <Show when={props.onToggleSidebar}>
+            <button
+              type="button"
+              class="client-hamburger-btn"
+              onClick={props.onToggleSidebar}
+              title="Mở menu danh mục"
+              aria-label="Mở menu danh mục"
             >
-              <div class="inline-edit-box" onClick={(e) => e.stopPropagation()}>
-                <input
-                  type="text"
-                  class="inline-edit-input"
-                  value={editingName()}
-                  onInput={(e) => setEditingName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleSave(group.id);
-                    if (e.key === "Escape") cancelEdit();
-                  }}
-                  ref={(el) => setTimeout(() => el?.focus(), 10)}
-                />
-                <button onClick={() => handleSave(group.id)} class="cat-save-btn" title="Lưu">
-                  <i class="fas fa-check"></i>
-                </button>
-                <button onClick={cancelEdit} class="cat-cancel-btn" title="Hủy">
-                  <i class="fas fa-times"></i>
-                </button>
-              </div>
-            </Show>
-          )}
-        </For>
-      </div>
+              <svg
+                width="20"
+                height="20"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                stroke-width="2.5"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+          </Show>
 
-      <div class="top-nav-actions">
-        <button 
-          onClick={() => {
-            if ('caches' in window) {
-              caches.keys().then(names => names.forEach(name => caches.delete(name)));
+          <A href="/" class="client-brand-link">
+            <span class="client-brand-badge">⚡</span>
+            <span class="client-brand-title">DevPool</span>
+          </A>
+
+          <span class="client-brand-subtag">Learning Hub</span>
+        </div>
+
+        {/* Center: Learning Track Tabs with GSAP interaction */}
+        <nav class="client-tabs-container">
+          <For each={props.groups}>
+            {(group) => (
+              <button
+                classList={{
+                  "client-nav-tab": true,
+                  active: props.activeGroupId === group.id,
+                }}
+                onClick={(e) => handleTabClick(e, group.id)}
+              >
+                <span class="client-tab-dot" />
+                <span>{group.name}</span>
+              </button>
+            )}
+          </For>
+        </nav>
+
+        {/* Right: Quick Search Button & Links */}
+        <div class="client-nav-actions">
+          {/* Quick Search Trigger */}
+          <button
+            class="client-search-trigger"
+            onClick={props.onOpenSearch}
+            title="Tìm kiếm tài liệu (Ctrl + K)"
+          >
+            <svg class="client-search-svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <span class="client-search-text">Tìm kiếm tài liệu...</span>
+            <kbd class="client-kbd-hint">Ctrl K</kbd>
+          </button>
+
+          {/* About Link */}
+          <A href="/about" class="client-nav-link" title="Giới thiệu">
+            Về chúng tôi
+          </A>
+
+          {/* Admin link */}
+          <Show
+            when={props.isAdmin}
+            fallback={
+              <A href="/login" class="client-admin-link" title="Dành cho Quản trị viên">
+                Admin
+              </A>
             }
-            window.location.reload();
-          }}
-          title="Tải lại trang (Xóa cache)"
-          class="action-btn"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-            <path d="M21 3v5h-5" />
-          </svg>
-        </button>
+          >
+            <A href="/admin" class="client-admin-badge" title="Mở trang Quản trị">
+              ⚙️ Admin
+            </A>
+          </Show>
+        </div>
       </div>
     </header>
   );
