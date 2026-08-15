@@ -285,11 +285,44 @@ export default function Sidebar(props: {
     <aside class={`client-sidebar ${props.isOpen ? "open" : ""}`}>
       {/* Sidebar Header with Track Picker & Search */}
       <div class="sidebar-top-section">
-        {/* Track Label with GSAP entry */}
-        <div ref={trackLabelRef} class="sidebar-track-label">
-          <span class="track-icon">📚</span>
-          <span class="track-name">{activeGroup()?.name || "Tài liệu lập trình"}</span>
-        </div>
+        {/* Category Group Selector (Mobile & Quick Switcher) */}
+        <Show when={groups().length > 1}>
+          <div class="sidebar-groups-switcher">
+            <div class="sidebar-groups-label-row">
+              <span class="sidebar-groups-label">CHỦ ĐỀ ĐANG CHỌN</span>
+              <span class="sidebar-groups-active-badge">{activeGroup()?.name}</span>
+            </div>
+            <div class="sidebar-groups-track">
+              <For each={groups()}>
+                {(group) => {
+                  const isActive = () => activeGroup()?.id === group.id;
+
+                  return (
+                    <button
+                      type="button"
+                      class={`sidebar-group-chip ${isActive() ? "active" : ""}`}
+                      onClick={() => {
+                        props.setActiveGroupId?.(group.id);
+                      }}
+                      title={`Chuyển sang chủ đề ${group.name}`}
+                    >
+                      <span class="sidebar-chip-dot" />
+                      <span class="sidebar-chip-name">{group.name}</span>
+                    </button>
+                  );
+                }}
+              </For>
+            </div>
+          </div>
+        </Show>
+
+        <Show when={groups().length <= 1}>
+          {/* Fallback Single Track Label */}
+          <div ref={trackLabelRef} class="sidebar-track-label">
+            <span class="track-icon">📚</span>
+            <span class="track-name">{activeGroup()?.name || "Tài liệu lập trình"}</span>
+          </div>
+        </Show>
 
         {/* Live Filter in Sidebar */}
         <div class="sidebar-filter-wrapper">
