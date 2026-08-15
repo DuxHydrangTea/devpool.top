@@ -1,84 +1,51 @@
 import { createSignal, createMemo, For, Show } from "solid-js";
 import { Title } from "@solidjs/meta";
 import { A, action, query, useAction, createAsync, revalidate } from "@solidjs/router";
-import { db } from "~/lib/turso";
-import { categories as categoriesSchema } from "~/db/schema";
-import { eq, asc } from "drizzle-orm";
-import { requireAuth } from "~/lib/auth";
 import CustomSelect from "~/components/CustomSelect";
-
-export type CategoryType = "group" | "category" | "chapter";
-
-export interface Category {
-  id: number;
-  name: string;
-  type: CategoryType;
-  parentId: number | null;
-  order: number;
-  slug: string;
-}
+import { authService } from "~/server/services/auth.service";
+import { categoryService } from "~/server/services/category.service";
+import { Category, CategoryType } from "~/types/category.types";
+import { generateSlug } from "~/utils/slug";
 
 // =======================
 // SERVER FUNCTIONS
 // =======================
 const getCategoriesServer = query(async () => {
   "use server";
-  await requireAuth();
-  const categories = await db.select().from(categoriesSchema).orderBy(asc(categoriesSchema.order));
-  return categories.map((c) => ({
-    id: c.id,
-    name: c.name,
-    type: c.type as CategoryType,
-    parentId: c.parentId,
-    order: c.order,
-    slug: c.slug,
-  }));
+  await authService.requireAuth();
+  return await categoryService.getAllCategories();
 }, "categories-list");
-
-function generateSlug(text: string) {
-  return text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-}
 
 const addCategoryServer = action(
   async (data: { name: string; type: string; parentId: number | null; order: number }) => {
     "use server";
-    await requireAuth();
-    await db.insert(categoriesSchema).values({
+    await authService.requireAuth();
+    await categoryService.createCategory({
       name: data.name,
-      type: data.type,
+      type: data.type as CategoryType,
       parentId: data.parentId,
       order: data.order,
-      slug: generateSlug(data.name),
     });
   }
 );
 
 const deleteCategoryServer = action(async (id: number) => {
   "use server";
-  await requireAuth();
-  await db.delete(categoriesSchema).where(eq(categoriesSchema.id, id));
+  await authService.requireAuth();
+  await categoryService.deleteCategory(id);
 });
 
 const updateCategoryServer = action(
   async (data: { id: number; name: string; type: string; parentId: number | null; order: number }) => {
     "use server";
-    await requireAuth();
-    await db
-      .update(categoriesSchema)
-      .set({
-        name: data.name,
-        type: data.type,
-        parentId: data.parentId,
-        order: data.order,
-        slug: generateSlug(data.name),
-      })
-      .where(eq(categoriesSchema.id, data.id));
+    await authService.requireAuth();
+    await categoryService.updateCategory({
+      id: data.id,
+      name: data.name,
+      type: data.type as CategoryType,
+      parentId: data.parentId,
+      order: data.order,
+    });
   }
 );
 

@@ -1,21 +1,11 @@
 import { Title } from "@solidjs/meta";
 import { A, query, createAsync } from "@solidjs/router";
-import { db } from "~/lib/turso";
-import { categories as categoriesSchema, articles as articlesSchema } from "~/db/schema";
-import { asc } from "drizzle-orm";
 import { For, Show } from "solid-js";
+import { homeService } from "~/server/services/home.service";
 
 const getHomeDataServer = query(async () => {
   "use server";
-  const groups = await db.select().from(categoriesSchema).where(categoriesSchema.type === "group" as any).orderBy(asc(categoriesSchema.order));
-  const categories = await db.select().from(categoriesSchema).orderBy(asc(categoriesSchema.order));
-  const latestArticles = await db.select().from(articlesSchema).orderBy(asc(articlesSchema.order)).limit(6);
-
-  return {
-    groups,
-    categories,
-    latestArticles,
-  };
+  return await homeService.getHomeData();
 }, "home-data");
 
 export default function Home() {

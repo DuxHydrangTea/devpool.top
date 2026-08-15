@@ -1,171 +1,64 @@
 import { createSignal, Show, For, onMount, onCleanup, createMemo, createEffect } from "solid-js";
 import { A, useSearchParams, query, action, createAsync, useAction, revalidate } from "@solidjs/router";
-import { db } from "~/lib/turso";
-import { articles as articlesSchema, categories as categoriesSchema } from "~/db/schema";
-import { eq, asc, desc } from "drizzle-orm";
-import { requireAuth } from "~/lib/auth";
 import { parseMarkdown } from "~/lib/markdown";
-import { articleCache } from "~/lib/cache";
 import CustomSelect from "~/components/CustomSelect";
+import { authService } from "~/server/services/auth.service";
+import { articleService } from "~/server/services/article.service";
+import { categoryService } from "~/server/services/category.service";
+import { aiService } from "~/server/services/ai.service";
+import { Article } from "~/types/article.types";
+import { Category } from "~/types/category.types";
+import { generateSlug } from "~/utils/slug";
 import type EasyMDE from "easymde";
 import "easymde/dist/easymde.min.css";
-
-// =======================
-// INTERFACES
-// =======================
-interface Article {
-  id: number;
-  title: string;
-  slug: string;
-  chapterId: number;
-  order: number;
-  contentMd: string | null;
-}
-
-interface Category {
-  id: number;
-  name: string;
-  type: string;
-  parentId: number | null;
-  order: number;
-  slug: string;
-}
-
-function generateSlug(text: string) {
-  return text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-}
 
 // =======================
 // SERVER FUNCTIONS
 // =======================
 const getCategoriesServer = query(async () => {
   "use server";
-  await requireAuth();
-  return await db.select().from(categoriesSchema).orderBy(asc(categoriesSchema.order));
+  await authService.requireAuth();
+  return await categoryService.getAllCategories();
 }, "categories-list");
 
 const getArticlesServer = query(async (filterChapterId?: number) => {
   "use server";
-  await requireAuth();
-  if (filterChapterId) {
-    return await db
-      .select()
-      .from(articlesSchema)
-      .where(eq(articlesSchema.chapterId, filterChapterId))
-      .orderBy(asc(articlesSchema.order));
-  }
-  return await db.select().from(articlesSchema).orderBy(desc(articlesSchema.id));
+  await authService.requireAuth();
+  return await articleService.getArticles(filterChapterId);
 }, "articles-list");
 
 const addArticleServer = action(
   async (data: { title: string; contentMd: string; chapterId: number; order: number }) => {
     "use server";
-    await requireAuth();
-    const slug = generateSlug(data.title);
-    articleCache.delete(slug);
-
-    await db.insert(articlesSchema).values({
-      title: data.title,
-      slug: slug,
-      contentMd: data.contentMd,
-      chapterId: data.chapterId,
-      order: data.order,
-    });
+    await authService.requireAuth();
+    await articleService.createArticle(data);
   }
 );
 
 const deleteArticleServer = action(async (id: number) => {
   "use server";
-  await requireAuth();
-  const target = await db.select().from(articlesSchema).where(eq(articlesSchema.id, id));
-  if (target.length > 0) {
-    articleCache.delete(target[0].slug);
-  }
-  await db.delete(articlesSchema).where(eq(articlesSchema.id, id));
+  await authService.requireAuth();
+  await articleService.deleteArticle(id);
 });
 
 const updateArticleServer = action(
   async (data: { id: number; title: string; contentMd: string; chapterId: number; order: number }) => {
     "use server";
-    await requireAuth();
-    const slug = generateSlug(data.title);
-
-    const target = await db.select().from(articlesSchema).where(eq(articlesSchema.id, data.id));
-    if (target.length > 0) {
-      articleCache.delete(target[0].slug);
-    }
-    articleCache.delete(slug);
-
-    await db
-      .update(articlesSchema)
-      .set({
-        title: data.title,
-        slug: slug,
-        contentMd: data.contentMd,
-        chapterId: data.chapterId,
-        order: data.order,
-      })
-      .where(eq(articlesSchema.id, data.id));
+    await authService.requireAuth();
+    await articleService.updateArticle(data);
   }
 );
 
 const clearAllCacheServer = action(async () => {
   "use server";
-  await requireAuth();
-  const count = articleCache.size;
-  articleCache.clear();
-  return count;
+  await authService.requireAuth();
+  return await articleService.clearAllSystemCache();
 });
 
 const generateExaContentServer = action(async (prompt: string) => {
   "use server";
-  await requireAuth();
-  const apiKey = process.env.EXA_API_KEY;
-  if (!apiKey) throw new Error("EXA_API_KEY is not set in .env");
-
-  const response = await fetch("https://api.exa.ai/search", {
-    method: "POST",
-    headers: {
-      "x-api-key": apiKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      query: prompt,
-      type: "auto",
-      systemPrompt:
-        "You are an expert technical writer. Write a comprehensive, well-structured educational article in Markdown format (in Vietnamese) about the requested topic based on the search results. Include code examples if relevant.",
-      outputSchema: {
-        type: "object",
-        properties: {
-          article: {
-            type: "string",
-            description: "The full article formatted in Markdown",
-          },
-        },
-        required: ["article"],
-      },
-      contents: {
-        highlights: true,
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`EXA API error: ${response.status} ${errorText}`);
-  }
-
-  const data = await response.json();
-  if (!data.output?.content?.article) {
-    throw new Error("EXA API did not return article content.");
-  }
-  return data.output.content.article;
+  await authService.requireAuth();
+  return await aiService.generateTechnicalArticle(prompt);
 });
 
 // =======================
@@ -389,8 +282,8 @@ export default function AdminArticles() {
 
   const handleClearAllCache = async () => {
     try {
-      const count = await clearAllCache();
-      alert(`Đã làm sạch bộ nhớ cache thành công (${count} bài viết)!`);
+      const res = await clearAllCache();
+      alert(`Đã làm sạch bộ nhớ cache thành công! (RAM: ${res.memoryCount} mục, Upstash Redis: ${res.redisCleared ? "Đã xóa" : "N/A"})`);
     } catch (e) {
       alert("Lỗi khi xóa bộ nhớ đệm.");
     }
@@ -454,7 +347,7 @@ export default function AdminArticles() {
               Kho Dữ Liệu Bài Viết
             </span>
             <span class="dash-meta-badge">{filteredArticles().length} bài viết</span>
-            <span class="dash-meta-badge">Cache RAM: {articleCache.size} bài</span>
+            <span class="dash-meta-badge">⚡ Upstash Redis: Ready</span>
           </div>
           <h1 class="dash-heading">Quản lý Bài viết & Nội dung</h1>
           <p class="dash-subheading">
@@ -467,9 +360,9 @@ export default function AdminArticles() {
             type="button"
             class="dash-btn dash-btn-outline"
             onClick={handleClearAllCache}
-            title="Làm mới bộ nhớ đệm RAM server"
+            title="Làm mới bộ nhớ đệm RAM & Upstash Redis"
           >
-            ⚡ Xóa Cache ({articleCache.size})
+            ⚡ Xóa Toàn Bộ Cache (Redis + RAM)
           </button>
 
           <button

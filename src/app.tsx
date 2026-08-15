@@ -6,98 +6,34 @@ import { TitleContext } from "~/contexts/TitleContext";
 import Sidebar from "~/components/Sidebar";
 import TopNav from "~/components/TopNav";
 import SearchModal, { SearchArticleItem } from "~/components/SearchModal";
-import { db } from "~/lib/turso";
-import { categories as categoriesSchema, articles as articlesSchema } from "~/db/schema";
-import { asc, eq } from "drizzle-orm";
-import { getAuthCookie, verifyToken, requireAuth } from "~/lib/auth";
-import { articleCache } from "~/lib/cache";
+import { authService } from "~/server/services/auth.service";
+import { categoryService } from "~/server/services/category.service";
+import { articleService } from "~/server/services/article.service";
+import { docService } from "~/server/services/doc.service";
 import "./app.css";
-
-function generateSlug(text: string) {
-  return text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-}
 
 export const updateCategoryNameServer = action(async (data: { id: number; name: string }) => {
   "use server";
-  await requireAuth();
-  if (!data.name || !data.name.trim()) return;
-  const newName = data.name.trim();
-  const slug = generateSlug(newName);
-  await db
-    .update(categoriesSchema)
-    .set({
-      name: newName,
-      slug: slug,
-    })
-    .where(eq(categoriesSchema.id, data.id));
+  await authService.requireAuth();
+  await categoryService.updateCategoryName(data.id, data.name);
 }, "update-category-name");
 
 export const updateArticleTitleServer = action(async (data: { id: number; title: string }) => {
   "use server";
-  await requireAuth();
-  if (!data.title || !data.title.trim()) return;
-  const newTitle = data.title.trim();
-  const slug = generateSlug(newTitle);
-
-  const target = await db.select().from(articlesSchema).where(eq(articlesSchema.id, data.id));
-  if (target.length > 0) {
-    articleCache.delete(target[0].slug);
-  }
-  articleCache.delete(slug);
-
-  await db
-    .update(articlesSchema)
-    .set({
-      title: newTitle,
-      slug: slug,
-    })
-    .where(eq(articlesSchema.id, data.id));
+  await authService.requireAuth();
+  await articleService.updateArticleTitle(data.id, data.title);
 }, "update-article-title");
 
 export const updateArticleContentServer = action(async (data: { id: number; contentMd: string }) => {
   "use server";
-  await requireAuth();
-  const target = await db.select().from(articlesSchema).where(eq(articlesSchema.id, data.id));
-  if (target.length > 0) {
-    articleCache.delete(target[0].slug);
-  }
-
-  await db
-    .update(articlesSchema)
-    .set({
-      contentMd: data.contentMd,
-    })
-    .where(eq(articlesSchema.id, data.id));
+  await authService.requireAuth();
+  await articleService.updateArticleContent(data.id, data.contentMd);
 }, "update-article-content");
 
 const getSidebarDataServer = query(async () => {
   "use server";
-  const token = getAuthCookie();
-  let isAdmin = false;
-  if (token) {
-    const payload = await verifyToken(token);
-    if (payload) isAdmin = true;
-  }
-
-  const categories = await db.select().from(categoriesSchema).orderBy(asc(categoriesSchema.order));
-  const articles = await db
-    .select({
-      id: articlesSchema.id,
-      title: articlesSchema.title,
-      chapterId: articlesSchema.chapterId,
-      order: articlesSchema.order,
-      slug: articlesSchema.slug,
-    })
-    .from(articlesSchema)
-    .orderBy(asc(articlesSchema.order));
-
-  return { categories, articles, isAdmin };
+  const isAdmin = await authService.isAuthenticated();
+  return await docService.getSidebarTree(isAdmin);
 }, "sidebar-data");
 
 import gsap from "gsap";

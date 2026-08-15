@@ -1,12 +1,15 @@
-import { articleCache } from "~/lib/cache";
+import { clearAllCache } from "~/lib/cache";
 
 export async function GET() {
-  const clearedCount = articleCache.size;
-  articleCache.clear();
-  return new Response(JSON.stringify({ 
-    success: true, 
-    message: `Đã xóa thành công ${clearedCount} bài viết khỏi RAM Cache trên Server.` 
-  }), {
-    headers: { "Content-Type": "application/json" }
-  });
+  const result = await clearAllCache();
+  return new Response(
+    JSON.stringify({
+      success: true,
+      message: `Đã làm sạch toàn bộ bộ nhớ cache (RAM: ${result.memoryCount} mục, Upstash Redis: ${result.redisCleared ? "Đã làm sạch" : "N/A"}).`,
+      details: result,
+    }),
+    {
+      headers: { "Content-Type": "application/json" },
+    }
+  );
 }

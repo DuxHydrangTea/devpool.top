@@ -14,6 +14,7 @@
     "@solidjs/router": "^1.0.0",
     "@solidjs/start": "^2.0.0",
     "@types/marked": "^5.0.2",
+    "@upstash/redis": "^1.38.2",
     "bcryptjs": "^3.0.3",
     "cheerio": "^1.2.0",
     "drizzle-orm": "^0.45.2",

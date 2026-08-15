@@ -292,7 +292,15 @@ export default function Sidebar(props: {
               <span class="sidebar-groups-label">CHỦ ĐỀ ĐANG CHỌN</span>
               <span class="sidebar-groups-active-badge">{activeGroup()?.name}</span>
             </div>
-            <div class="sidebar-groups-track">
+            <div
+              class="sidebar-groups-track"
+              onWheel={(e) => {
+                if (e.deltaY !== 0) {
+                  e.preventDefault();
+                  e.currentTarget.scrollLeft += e.deltaY;
+                }
+              }}
+            >
               <For each={groups()}>
                 {(group) => {
                   const isActive = () => activeGroup()?.id === group.id;
