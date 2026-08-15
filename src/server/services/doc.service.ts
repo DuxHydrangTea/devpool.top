@@ -4,6 +4,8 @@ import { eq, asc } from "drizzle-orm";
 import { DocPayload } from "~/types/doc.types";
 import { parseMarkdown } from "~/lib/markdown";
 import { getArticleCache, setArticleCache, getSiteTreeCache, setSiteTreeCache } from "~/lib/cache";
+import { ArticleMeta } from "~/types/article.types";
+import { Category } from "~/types/category.types";
 
 export class DocService {
   /**
@@ -62,27 +64,44 @@ export class DocService {
     const data = results[0];
     const htmlContent = await parseMarkdown(data.contentMd || "");
 
-    // 3. Resolve Navigation Hierarchy & Next/Prev
+    // 3. Resolve Navigation Hierarchy & Next/Prev with O(1) HashMaps
     const treeData = await this.getSidebarTree(isAdmin);
-    const allCategories = treeData.categories;
-    const allArticles = treeData.articles;
+    const allCategories: Category[] = treeData.categories;
+    const allArticles: ArticleMeta[] = treeData.articles;
 
-    const flatArticles: typeof allArticles = [];
-    const groups = allCategories.filter((c) => c.type === "group");
+    // Fast O(1) Lookups
+    const catMap = new Map<number, Category>(allCategories.map((c) => [c.id, c]));
+    const childrenMap = new Map<number | null, Category[]>();
+    for (const cat of allCategories) {
+      const list = childrenMap.get(cat.parentId) || [];
+      list.push(cat);
+      childrenMap.set(cat.parentId, list);
+    }
+
+    const articlesByChapter = new Map<number, ArticleMeta[]>();
+    for (const art of allArticles) {
+      const list = articlesByChapter.get(art.chapterId) || [];
+      list.push(art);
+      articlesByChapter.set(art.chapterId, list);
+    }
+
+    // Build flattened article sequence efficiently
+    const flatArticles: ArticleMeta[] = [];
+    const groups = childrenMap.get(null) || allCategories.filter((c) => c.type === "group");
     for (const group of groups) {
-      const cats = allCategories.filter((c) => c.type === "category" && c.parentId === group.id);
+      const cats = childrenMap.get(group.id) || [];
       for (const cat of cats) {
-        const chaps = allCategories.filter((c) => c.type === "chapter" && c.parentId === cat.id);
+        const chaps = childrenMap.get(cat.id) || [];
         for (const chap of chaps) {
-          const arts = allArticles.filter((a) => a.chapterId === chap.id);
+          const arts = articlesByChapter.get(chap.id) || [];
           flatArticles.push(...arts);
         }
       }
     }
 
     const currentIndex = flatArticles.findIndex((a) => a.slug === articleSlug || a.slug === slugId);
-    let prevResult = null;
-    let nextResult = null;
+    let prevResult: ArticleMeta | null = null;
+    let nextResult: ArticleMeta | null = null;
 
     if (currentIndex > 0) {
       prevResult = flatArticles[currentIndex - 1];
@@ -92,20 +111,20 @@ export class DocService {
     }
 
     const getArticlePath = (article: { chapterId: number; slug: string }) => {
-      const chapter = allCategories.find((c) => c.id === article.chapterId);
-      let cat = null;
-      if (chapter && chapter.type === "chapter") {
-        cat = allCategories.find((c) => c.id === chapter.parentId);
+      const chapter = catMap.get(article.chapterId);
+      let cat: Category | undefined = undefined;
+      if (chapter && chapter.type === "chapter" && chapter.parentId !== null) {
+        cat = catMap.get(chapter.parentId);
       } else if (chapter && chapter.type === "category") {
         cat = chapter;
       }
       return cat && cat.slug ? `${cat.slug}/${article.slug}` : article.slug;
     };
 
-    // Find parent chapter and category for breadcrumbs
-    const currentChapter = allCategories.find((c) => c.id === data.chapterId);
-    const currentCat = currentChapter ? allCategories.find((c) => c.id === currentChapter.parentId) : null;
-    const currentGroup = currentCat ? allCategories.find((g) => g.id === currentCat.parentId) : null;
+    // Find parent chapter, category, and group for breadcrumbs in O(1)
+    const currentChapter = catMap.get(data.chapterId || 0);
+    const currentCat = currentChapter && currentChapter.parentId !== null ? catMap.get(currentChapter.parentId) : null;
+    const currentGroup = currentCat && currentCat.parentId !== null ? catMap.get(currentCat.parentId) : null;
 
     const words = (data.contentMd || "").trim().split(/\s+/).filter(Boolean).length;
     const readMinutes = Math.max(1, Math.ceil(words / 220));
@@ -131,19 +150,24 @@ export class DocService {
   }
 
   /**
-   * Pre-cache / Warmup all articles in the database to Upstash Redis & RAM
+   * Pre-cache / Warmup all articles concurrently in batches of 25
    */
-  async warmupAllArticles(): Promise<{ total: number; warmed: number }> {
+  async warmupAllArticles(batchSize: number = 25): Promise<{ total: number; warmed: number }> {
     const allArticles = await db.select().from(articlesSchema);
     let warmed = 0;
 
-    for (const article of allArticles) {
-      try {
-        await this.getDocBySlug(article.slug);
-        warmed++;
-      } catch (err) {
-        console.error(`Failed to warmup article ${article.slug}:`, err);
-      }
+    for (let i = 0; i < allArticles.length; i += batchSize) {
+      const chunk = allArticles.slice(i, i + batchSize);
+      await Promise.allSettled(
+        chunk.map(async (article) => {
+          try {
+            await this.getDocBySlug(article.slug);
+            warmed++;
+          } catch (err) {
+            console.error(`Failed to warmup article ${article.slug}:`, err);
+          }
+        })
+      );
     }
 
     return { total: allArticles.length, warmed };

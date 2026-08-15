@@ -200,25 +200,46 @@ export default function Sidebar(props: {
     return groups()[0];
   });
 
+  // Pre-index categories by parent ID for instant O(1) retrieval
+  const categoriesByParent = createMemo(() => {
+    const map = new Map<number | null, Category[]>();
+    for (const c of categories()) {
+      const list = map.get(c.parentId) || [];
+      list.push(c);
+      map.set(c.parentId, list);
+    }
+    return map;
+  });
+
+  // Pre-index articles by chapter ID for instant O(1) retrieval
+  const articlesByChapter = createMemo(() => {
+    const map = new Map<number, Article[]>();
+    for (const a of articles()) {
+      const list = map.get(a.chapterId) || [];
+      list.push(a);
+      map.set(a.chapterId, list);
+    }
+    return map;
+  });
+
   // Categories under active group (Level 2)
   const activeCategories = createMemo(() => {
     const grp = activeGroup();
+    const map = categoriesByParent();
     if (!grp) {
-      return categories().filter((c) => c.type === "category" && c.parentId === null);
+      return (map.get(null) || []).filter((c) => c.type === "category");
     }
-    return categories().filter((c) => c.type === "category" && c.parentId === grp.id);
+    return (map.get(grp.id) || []).filter((c) => c.type === "category");
   });
 
-  // Get child chapters or child sub-categories under any parent category/chapter
+  // Get child chapters or child sub-categories under any parent category/chapter in O(1)
   const getChapters = (parentId: number) => {
-    return categories().filter(
-      (c) => (c.type === "chapter" || c.type === "category") && c.parentId === parentId
-    );
+    return categoriesByParent().get(parentId) || [];
   };
 
-  // Get direct articles assigned to a chapter or category ID
+  // Get direct articles assigned to a chapter or category ID in O(1)
   const getArticles = (chapterOrCatId: number) => {
-    const arts = articles().filter((a) => a.chapterId === chapterOrCatId);
+    const arts = articlesByChapter().get(chapterOrCatId) || [];
     const filter = filterText().toLowerCase().trim();
     if (!filter) return arts;
     return arts.filter(

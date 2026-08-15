@@ -22,6 +22,8 @@ export default function DocPage() {
 
   let viewerInstance: any = null;
   let articleContainerRef: HTMLElement | undefined;
+  let animationTimer: any = null;
+  let viewerTimer: any = null;
 
   createEffect(() => {
     const data = article();
@@ -37,7 +39,8 @@ export default function DocPage() {
         }
 
         // GSAP: Animate rendered Markdown content and article header
-        setTimeout(() => {
+        clearTimeout(animationTimer);
+        animationTimer = setTimeout(() => {
           if (articleContainerRef) {
             // 1. Breadcrumbs & Header Card
             const header = articleContainerRef.querySelector(".doc-header-card");
@@ -102,7 +105,8 @@ export default function DocPage() {
         viewerInstance = null;
       }
 
-      setTimeout(async () => {
+      clearTimeout(viewerTimer);
+      viewerTimer = setTimeout(async () => {
         const Viewer = (await import("viewerjs")).default;
         const proseContainer = document.querySelector(".prose");
         if (proseContainer) {
@@ -138,6 +142,8 @@ export default function DocPage() {
 
   onCleanup(() => {
     setPageTitle("DevPool");
+    clearTimeout(animationTimer);
+    clearTimeout(viewerTimer);
     if (viewerInstance) {
       viewerInstance.destroy();
     }

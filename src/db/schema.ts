@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, index } from 'drizzle-orm/sqlite-core';
 
 export const categories = sqliteTable('categories', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -7,7 +7,11 @@ export const categories = sqliteTable('categories', {
   parentId: integer('parent_id'),
   order: integer('order_num').default(0).notNull(),
   slug: text('slug').notNull().default(''),
-});
+}, (table) => [
+  index('idx_categories_parent_id').on(table.parentId),
+  index('idx_categories_slug').on(table.slug),
+  index('idx_categories_type').on(table.type),
+]);
 
 export const articles = sqliteTable('articles', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -16,7 +20,11 @@ export const articles = sqliteTable('articles', {
   chapterId: integer('chapter_id').references(() => categories.id, { onDelete: 'cascade' }),
   order: integer('order_num').default(0).notNull(),
   slug: text('slug').notNull().default(''),
-});
+}, (table) => [
+  index('idx_articles_slug').on(table.slug),
+  index('idx_articles_chapter_id').on(table.chapterId),
+  index('idx_articles_order').on(table.order),
+]);
 
 export const users = sqliteTable('users', {
   id: integer('id').primaryKey({ autoIncrement: true }),
