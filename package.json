@@ -6,7 +6,8 @@
     "build": "vite build",
     "start": "node .output/server/index.mjs",
     "preview": "vite preview",
-    "fix-code-blocks": "tsx scripts/fix_code_blocks_deepseek.ts"
+    "seed:admin": "tsx scripts/seed_admin.ts",
+    "db:index": "tsx scripts/add_indexes.ts"
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",

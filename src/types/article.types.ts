@@ -5,6 +5,7 @@ export interface Article {
   chapterId: number;
   order: number;
   contentMd: string | null;
+  isHidden: number; // 0 = visible, 1 = hidden
 }
 
 export interface ArticleMeta {
@@ -13,6 +14,7 @@ export interface ArticleMeta {
   chapterId: number;
   order: number;
   slug: string;
+  isHidden: number; // 0 = visible, 1 = hidden
 }
 
 export interface CreateArticleDTO {
@@ -20,6 +22,7 @@ export interface CreateArticleDTO {
   contentMd: string;
   chapterId: number;
   order: number;
+  isHidden?: number;
 }
 
 export interface UpdateArticleDTO {
@@ -28,4 +31,5 @@ export interface UpdateArticleDTO {
   contentMd: string;
   chapterId: number;
   order: number;
+  isHidden?: number;
 }

@@ -7,6 +7,7 @@ export interface Category {
   parentId: number | null;
   order: number;
   slug: string;
+  isHidden: number; // 0 = visible, 1 = hidden
 }
 
 export interface CreateCategoryDTO {
@@ -14,6 +15,7 @@ export interface CreateCategoryDTO {
   type: CategoryType;
   parentId: number | null;
   order: number;
+  isHidden?: number;
 }
 
 export interface UpdateCategoryDTO {
@@ -22,4 +24,5 @@ export interface UpdateCategoryDTO {
   type: CategoryType;
   parentId: number | null;
   order: number;
+  isHidden?: number;
 }

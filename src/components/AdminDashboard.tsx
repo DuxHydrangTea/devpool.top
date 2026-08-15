@@ -64,16 +64,50 @@ export default function AdminDashboard(props: AdminDashboardProps) {
   const categoriesOnly = createMemo(() => categoriesList().filter((c) => c.type === "category"));
   const chapters = createMemo(() => categoriesList().filter((c) => c.type === "chapter"));
 
-  // Map chapter id to chapter info and parent category/group
-  const chapterMap = createMemo(() => {
-    const map = new Map<number, { chapter: DashboardCategory; category?: DashboardCategory; group?: DashboardCategory }>();
-    const catMap = new Map(categoriesOnly().map((c) => [c.id, c]));
-    const grpMap = new Map(groups().map((g) => [g.id, g]));
+  // Fast map to find the root Group (Tier 1) for ANY category or chapter ID recursively
+  const rootGroupMap = createMemo(() => {
+    const all = categoriesList();
+    const catMap = new Map<number, DashboardCategory>(all.map((c) => [c.id, c]));
+    const result = new Map<number, DashboardCategory | undefined>();
 
-    for (const chap of chapters()) {
-      const parentCat = chap.parentId ? catMap.get(chap.parentId) : undefined;
-      const parentGrp = parentCat && parentCat.parentId ? grpMap.get(parentCat.parentId) : undefined;
-      map.set(chap.id, { chapter: chap, category: parentCat, group: parentGrp });
+    const findRootGroup = (catId: number | null): DashboardCategory | undefined => {
+      if (catId === null || !catMap.has(catId)) return undefined;
+      const cat = catMap.get(catId)!;
+      if (cat.type === "group") return cat;
+      return findRootGroup(cat.parentId);
+    };
+
+    for (const c of all) {
+      result.set(c.id, findRootGroup(c.id));
+    }
+    return result;
+  });
+
+  // Map category/chapter ID to full breadcrumb info (chapter, category, group)
+  const chapterMap = createMemo(() => {
+    const all = categoriesList();
+    const catMap = new Map<number, DashboardCategory>(all.map((c) => [c.id, c]));
+    const map = new Map<number, { chapter?: DashboardCategory; category?: DashboardCategory; group?: DashboardCategory }>();
+
+    for (const c of all) {
+      let curr: DashboardCategory | undefined = c;
+      let chapter: DashboardCategory | undefined = undefined;
+      let category: DashboardCategory | undefined = undefined;
+      let group: DashboardCategory | undefined = undefined;
+
+      while (curr) {
+        if (curr.type === "chapter" && !chapter) chapter = curr;
+        else if (curr.type === "category" && !category) category = curr;
+        else if (curr.type === "group" && !group) group = curr;
+
+        if (curr.parentId !== null) {
+          curr = catMap.get(curr.parentId);
+        } else {
+          break;
+        }
+      }
+
+      map.set(c.id, { chapter, category, group });
     }
     return map;
   });
@@ -105,31 +139,37 @@ export default function AdminDashboard(props: AdminDashboardProps) {
     };
   });
 
-  // Calculate distribution by group
+  // Calculate distribution by group (RECURSIVE)
   const groupDistribution = createMemo(() => {
-    const map = chapterMap();
+    const grpRootMap = rootGroupMap();
     const grps = groups();
+    const allCats = categoriesList();
+    const arts = articlesList();
     const counts: Record<string, { id: number; name: string; articleCount: number; chapterCount: number }> = {};
 
     for (const g of grps) {
       counts[g.name] = { id: g.id, name: g.name, articleCount: 0, chapterCount: 0 };
     }
 
-    for (const chap of chapters()) {
-      const info = map.get(chap.id);
-      if (info?.group && counts[info.group.name]) {
-        counts[info.group.name].chapterCount++;
+    // Count descendant chapters & subcategories
+    for (const c of allCats) {
+      if (c.type !== "group") {
+        const rootGrp = grpRootMap.get(c.id);
+        if (rootGrp && counts[rootGrp.name]) {
+          counts[rootGrp.name].chapterCount++;
+        }
       }
     }
 
-    for (const art of articlesList()) {
-      const info = map.get(art.chapterId);
-      if (info?.group && counts[info.group.name]) {
-        counts[info.group.name].articleCount++;
+    // Count all articles recursively by resolving their root group
+    for (const art of arts) {
+      const rootGrp = grpRootMap.get(art.chapterId);
+      if (rootGrp && counts[rootGrp.name]) {
+        counts[rootGrp.name].articleCount++;
       }
     }
 
-    const total = articlesList().length || 1;
+    const total = arts.length || 1;
     return Object.values(counts).map((item) => ({
       ...item,
       percentage: Math.round((item.articleCount / total) * 100),
@@ -140,7 +180,7 @@ export default function AdminDashboard(props: AdminDashboardProps) {
   const filteredArticles = createMemo(() => {
     const q = searchQuery().toLowerCase().trim();
     const grpFilter = selectedGroupFilter();
-    const map = chapterMap();
+    const grpRootMap = rootGroupMap();
 
     return articlesList()
       .filter((art) => {
@@ -148,8 +188,8 @@ export default function AdminDashboard(props: AdminDashboardProps) {
         if (!matchesQuery) return false;
 
         if (grpFilter === "all") return true;
-        const info = map.get(art.chapterId);
-        return info?.group?.name === grpFilter;
+        const rootGrp = grpRootMap.get(art.chapterId);
+        return rootGrp?.name === grpFilter;
       })
       .slice(0, 12); // display top 12
   });
@@ -385,7 +425,7 @@ export default function AdminDashboard(props: AdminDashboardProps) {
                     <div class="dash-track-info">
                       <span class={`dash-track-badge ${badgeClass}`}>{item.name}</span>
                       <span class="dash-track-meta">
-                        {item.chapterCount} chương con
+                        {item.chapterCount} mục con
                       </span>
                     </div>
 

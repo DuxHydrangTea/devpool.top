@@ -66,7 +66,7 @@ export default function DocPage() {
               const children = prose.children;
               if (children.length > 0) {
                 gsap.fromTo(
-                  Array.from(children).slice(0, 15), // animate top 15 elements smoothly
+                  Array.from(children).slice(0, 15),
                   { opacity: 0, y: 16 },
                   {
                     opacity: 1,
@@ -169,7 +169,7 @@ export default function DocPage() {
           <Title>{article()?.title} - DevPool Learning</Title>
           <Meta name="description" content={`Đọc bài viết: ${article()?.title}`} />
 
-          {/* ARTICLE ARTICLE CONTAINER */}
+          {/* ARTICLE CONTAINER */}
           <article ref={articleContainerRef} class="doc-article-container">
             {/* BREADCRUMB TRAIL */}
             <nav class="doc-breadcrumbs">
@@ -179,9 +179,9 @@ export default function DocPage() {
               <span class="crumb-sep">/</span>
               <span class="crumb-group">{article()?.groupName}</span>
               <span class="crumb-sep">/</span>
-              <span class="crumb-cat">{article()?.catName}</span>
+              <span class="crumb-cat">{article()?.catName || article()?.categoryName}</span>
               <span class="crumb-sep">/</span>
-              <span class="crumb-chap">{article()?.chapName}</span>
+              <span class="crumb-chap">{article()?.chapName || article()?.chapterName}</span>
             </nav>
 
             {/* ARTICLE HEADER BAR */}
@@ -224,23 +224,33 @@ export default function DocPage() {
             {/* PREV / NEXT NAVIGATION CARDS */}
             <nav class="doc-pagination-cards">
               <Show
-                when={article()?.prev}
+                when={article()?.prev || article()?.prevArticle}
                 fallback={<div class="doc-pag-placeholder" />}
               >
-                <A href={`/docs/${article()?.prev?.slug}`} class="doc-pag-card pag-prev">
-                  <span class="pag-sub">← Bài trước đó</span>
-                  <span class="pag-title">{article()?.prev?.title}</span>
-                </A>
+                {(() => {
+                  const prevItem = article()?.prev || article()?.prevArticle;
+                  return (
+                    <A href={`/docs/${prevItem?.slug}`} class="doc-pag-card pag-prev">
+                      <span class="pag-sub">← Bài trước đó</span>
+                      <span class="pag-title">{prevItem?.title}</span>
+                    </A>
+                  );
+                })()}
               </Show>
 
               <Show
-                when={article()?.next}
+                when={article()?.next || article()?.nextArticle}
                 fallback={<div class="doc-pag-placeholder" />}
               >
-                <A href={`/docs/${article()?.next?.slug}`} class="doc-pag-card pag-next">
-                  <span class="pag-sub">Bài kế tiếp →</span>
-                  <span class="pag-title">{article()?.next?.title}</span>
-                </A>
+                {(() => {
+                  const nextItem = article()?.next || article()?.nextArticle;
+                  return (
+                    <A href={`/docs/${nextItem?.slug}`} class="doc-pag-card pag-next">
+                      <span class="pag-sub">Bài kế tiếp →</span>
+                      <span class="pag-title">{nextItem?.title}</span>
+                    </A>
+                  );
+                })()}
               </Show>
             </nav>
           </article>

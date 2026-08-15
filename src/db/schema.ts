@@ -7,10 +7,12 @@ export const categories = sqliteTable('categories', {
   parentId: integer('parent_id'),
   order: integer('order_num').default(0).notNull(),
   slug: text('slug').notNull().default(''),
+  isHidden: integer('is_hidden').default(0).notNull(),
 }, (table) => [
   index('idx_categories_parent_id').on(table.parentId),
   index('idx_categories_slug').on(table.slug),
   index('idx_categories_type').on(table.type),
+  index('idx_categories_is_hidden').on(table.isHidden),
 ]);
 
 export const articles = sqliteTable('articles', {
@@ -20,10 +22,12 @@ export const articles = sqliteTable('articles', {
   chapterId: integer('chapter_id').references(() => categories.id, { onDelete: 'cascade' }),
   order: integer('order_num').default(0).notNull(),
   slug: text('slug').notNull().default(''),
+  isHidden: integer('is_hidden').default(0).notNull(),
 }, (table) => [
   index('idx_articles_slug').on(table.slug),
   index('idx_articles_chapter_id').on(table.chapterId),
   index('idx_articles_order').on(table.order),
+  index('idx_articles_is_hidden').on(table.isHidden),
 ]);
 
 export const users = sqliteTable('users', {

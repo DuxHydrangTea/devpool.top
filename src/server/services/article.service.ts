@@ -1,31 +1,89 @@
 import { db } from "~/lib/turso";
 import { articles as articlesSchema } from "~/db/schema";
 import { eq, asc, desc } from "drizzle-orm";
-import { Article, CreateArticleDTO, UpdateArticleDTO } from "~/types/article.types";
+import { Article, ArticleMeta, CreateArticleDTO, UpdateArticleDTO } from "~/types/article.types";
 import { generateSlug } from "~/utils/slug";
 import { invalidateArticle, invalidateSiteTree, clearAllCache } from "~/lib/cache";
 
 export class ArticleService {
   /**
-   * Get all articles, optionally filtered by chapter ID
+   * Get lightweight article metadata list (omits heavy contentMd for ultra-fast table loading)
    */
-  async getArticles(filterChapterId?: number): Promise<Article[]> {
+  async getArticles(filterChapterId?: number): Promise<ArticleMeta[]> {
     if (filterChapterId) {
-      return await db
-        .select()
+      const results = await db
+        .select({
+          id: articlesSchema.id,
+          title: articlesSchema.title,
+          slug: articlesSchema.slug,
+          chapterId: articlesSchema.chapterId,
+          order: articlesSchema.order,
+          isHidden: articlesSchema.isHidden,
+        })
         .from(articlesSchema)
         .where(eq(articlesSchema.chapterId, filterChapterId))
         .orderBy(asc(articlesSchema.order));
+
+      return results.map((a) => ({
+        id: a.id,
+        title: a.title,
+        slug: a.slug,
+        chapterId: a.chapterId || 0,
+        order: a.order,
+        isHidden: a.isHidden || 0,
+      }));
     }
-    return await db.select().from(articlesSchema).orderBy(desc(articlesSchema.id));
+
+    const results = await db
+      .select({
+        id: articlesSchema.id,
+        title: articlesSchema.title,
+        slug: articlesSchema.slug,
+        chapterId: articlesSchema.chapterId,
+        order: articlesSchema.order,
+        isHidden: articlesSchema.isHidden,
+      })
+      .from(articlesSchema)
+      .orderBy(desc(articlesSchema.id));
+
+    return results.map((a) => ({
+      id: a.id,
+      title: a.title,
+      slug: a.slug,
+      chapterId: a.chapterId || 0,
+      order: a.order,
+      isHidden: a.isHidden || 0,
+    }));
   }
 
   /**
-   * Get article by ID
+   * Get single article markdown content by ID on-demand (lazy-loaded when editing)
+   */
+  async getArticleContent(id: number): Promise<string> {
+    const results = await db
+      .select({ contentMd: articlesSchema.contentMd })
+      .from(articlesSchema)
+      .where(eq(articlesSchema.id, id));
+
+    return results.length > 0 ? results[0].contentMd || "" : "";
+  }
+
+  /**
+   * Get full article by ID
    */
   async getArticleById(id: number): Promise<Article | null> {
     const results = await db.select().from(articlesSchema).where(eq(articlesSchema.id, id));
-    return results.length > 0 ? results[0] : null;
+    if (results.length === 0) return null;
+    const a = results[0];
+    return {
+      id: a.id,
+      title: a.title,
+      slug: a.slug,
+      chapterId: a.chapterId || 0,
+      order: a.order,
+      contentMd: a.contentMd,
+      isHidden: a.isHidden || 0,
+    };
   }
 
   /**
@@ -44,103 +102,127 @@ export class ArticleService {
 
     // Invalidate caches before insert to ensure clean state
     await invalidateArticle(slug);
-    await invalidateSiteTree();
 
     await db.insert(articlesSchema).values({
       title: trimmedTitle,
-      slug: slug,
-      contentMd: dto.contentMd,
+      contentMd: dto.contentMd || "",
       chapterId: dto.chapterId,
-      order: dto.order,
+      order: dto.order ?? 0,
+      slug,
+      isHidden: dto.isHidden ?? 0,
     });
+
+    await invalidateSiteTree();
   }
 
   /**
-   * Update full article details and invalidate cache
+   * Update article content, metadata and invalidate cache
    */
   async updateArticle(dto: UpdateArticleDTO): Promise<void> {
     const trimmedTitle = dto.title.trim();
     if (!trimmedTitle) {
       throw new Error("Tiêu đề bài viết không được để trống");
     }
+    if (!dto.chapterId) {
+      throw new Error("Vui lòng chọn chương chứa bài viết");
+    }
+
+    const oldArticle = await this.getArticleById(dto.id);
+    if (!oldArticle) {
+      throw new Error("Bài viết không tồn tại");
+    }
 
     const slug = generateSlug(trimmedTitle);
 
-    // Find previous slug to invalidate old cache if title changed
-    const target = await db.select().from(articlesSchema).where(eq(articlesSchema.id, dto.id));
-    if (target.length > 0) {
-      await invalidateArticle(target[0].slug);
+    // Invalidate old slug if changed
+    if (oldArticle.slug !== slug) {
+      await invalidateArticle(oldArticle.slug);
     }
     await invalidateArticle(slug);
-    await invalidateSiteTree();
 
     await db
       .update(articlesSchema)
       .set({
         title: trimmedTitle,
-        slug: slug,
         contentMd: dto.contentMd,
         chapterId: dto.chapterId,
         order: dto.order,
+        slug,
+        isHidden: dto.isHidden ?? 0,
       })
       .where(eq(articlesSchema.id, dto.id));
+
+    await invalidateSiteTree();
   }
 
   /**
-   * Fast inline title rename
+   * Quick update article title
    */
   async updateArticleTitle(id: number, title: string): Promise<void> {
-    const trimmedTitle = title.trim();
-    if (!trimmedTitle) return;
+    const trimmed = title.trim();
+    if (!trimmed) throw new Error("Tiêu đề không được để trống");
 
-    const slug = generateSlug(trimmedTitle);
-    const target = await db.select().from(articlesSchema).where(eq(articlesSchema.id, id));
-    if (target.length > 0) {
-      await invalidateArticle(target[0].slug);
-    }
+    const oldArticle = await this.getArticleById(id);
+    if (!oldArticle) throw new Error("Bài viết không tồn tại");
+
+    const slug = generateSlug(trimmed);
+    await invalidateArticle(oldArticle.slug);
     await invalidateArticle(slug);
-    await invalidateSiteTree();
 
     await db
       .update(articlesSchema)
-      .set({
-        title: trimmedTitle,
-        slug: slug,
-      })
+      .set({ title: trimmed, slug })
       .where(eq(articlesSchema.id, id));
+
+    await invalidateSiteTree();
   }
 
   /**
-   * Fast inline content update
+   * Quick update article markdown content
    */
   async updateArticleContent(id: number, contentMd: string): Promise<void> {
-    const target = await db.select().from(articlesSchema).where(eq(articlesSchema.id, id));
-    if (target.length > 0) {
-      await invalidateArticle(target[0].slug);
-    }
+    const oldArticle = await this.getArticleById(id);
+    if (!oldArticle) throw new Error("Bài viết không tồn tại");
 
     await db
       .update(articlesSchema)
-      .set({
-        contentMd: contentMd,
-      })
+      .set({ contentMd })
       .where(eq(articlesSchema.id, id));
+
+    await invalidateArticle(oldArticle.slug);
   }
 
   /**
-   * Delete article and clean up cache
+   * Quick toggle article visibility
+   */
+  async toggleArticleVisibility(id: number, isHidden: number): Promise<void> {
+    const oldArticle = await this.getArticleById(id);
+    if (!oldArticle) throw new Error("Bài viết không tồn tại");
+
+    await db
+      .update(articlesSchema)
+      .set({ isHidden })
+      .where(eq(articlesSchema.id, id));
+
+    await invalidateArticle(oldArticle.slug);
+    await invalidateSiteTree();
+  }
+
+  /**
+   * Delete article and invalidate cache
    */
   async deleteArticle(id: number): Promise<void> {
-    const target = await db.select().from(articlesSchema).where(eq(articlesSchema.id, id));
-    if (target.length > 0) {
-      await invalidateArticle(target[0].slug);
+    const oldArticle = await this.getArticleById(id);
+    if (oldArticle) {
+      await invalidateArticle(oldArticle.slug);
     }
-    await invalidateSiteTree();
+
     await db.delete(articlesSchema).where(eq(articlesSchema.id, id));
+    await invalidateSiteTree();
   }
 
   /**
-   * Clear all cache across RAM and Upstash Redis
+   * Clear all L1 RAM and L2 Redis caches
    */
   async clearAllSystemCache() {
     return await clearAllCache();

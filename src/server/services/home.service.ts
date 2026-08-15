@@ -1,34 +1,18 @@
-import { db } from "~/lib/turso";
-import { categories as categoriesSchema, articles as articlesSchema } from "~/db/schema";
-import { asc } from "drizzle-orm";
+import { docService } from "./doc.service";
 
 export class HomeService {
   /**
-   * Fetch structured data for the landing page
+   * Fetch structured data for the landing page (only public, visible content)
    */
   async getHomeData() {
-    const allCategories = await db
-      .select()
-      .from(categoriesSchema)
-      .orderBy(asc(categoriesSchema.order));
+    const tree = await docService.getSidebarTree(false);
 
-    const groups = allCategories.filter((c) => c.type === "group");
-
-    const latestArticles = await db
-      .select({
-        id: articlesSchema.id,
-        title: articlesSchema.title,
-        chapterId: articlesSchema.chapterId,
-        order: articlesSchema.order,
-        slug: articlesSchema.slug,
-      })
-      .from(articlesSchema)
-      .orderBy(asc(articlesSchema.order))
-      .limit(6);
+    const groups = tree.categories.filter((c) => c.type === "group");
+    const latestArticles = tree.articles.slice(0, 6);
 
     return {
       groups,
-      categories: allCategories,
+      categories: tree.categories,
       latestArticles,
     };
   }
