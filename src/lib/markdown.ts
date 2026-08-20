@@ -122,11 +122,28 @@ hljs.registerLanguage('gdscript', function (e: any) {
 marked.use(markedHighlight({
   langPrefix: 'hljs language-',
   highlight(code, lang) {
+    if (lang === 'mermaid') {
+      return code;
+    }
     const language = hljs.getLanguage(lang) ? lang : 'plaintext';
     return hljs.highlight(code, { language }).value;
   }
 }));
 
+marked.use({
+  renderer: {
+    code(token: any) {
+      const lang = token.lang || '';
+      const text = token.text || '';
+      if (lang === 'mermaid') {
+        return `<pre class="mermaid">${text}</pre>`;
+      }
+      return false; // fallback to default highlighter
+    }
+  }
+});
+
 export function parseMarkdown(content: string) {
   return marked.parse(content);
 }
+

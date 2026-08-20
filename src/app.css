@@ -931,6 +931,25 @@ textarea.form-input {
   margin-bottom: 1.5em;
 }
 
+.prose .mermaid {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: #0b1324;
+  border: 1px solid rgba(56, 189, 248, 0.15);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4);
+  border-radius: var(--radius-xl);
+  padding: 1.5rem 1rem;
+  overflow-x: auto;
+  margin: 2rem 0;
+}
+
+.prose .mermaid svg {
+  display: block !important;
+  max-width: 100% !important;
+  height: auto !important;
+}
+
 .prose pre code {
   background: transparent;
   color: inherit;

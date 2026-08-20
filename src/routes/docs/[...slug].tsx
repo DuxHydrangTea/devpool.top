@@ -24,6 +24,7 @@ export default function DocPage() {
   let articleContainerRef: HTMLElement | undefined;
   let animationTimer: any = null;
   let viewerTimer: any = null;
+  let mermaidTimer: any = null;
 
   createEffect(() => {
     const data = article();
@@ -137,6 +138,41 @@ export default function DocPage() {
           }
         }
       }, 100);
+
+      // MERMAID DIAGRAMS RENDERING
+      clearTimeout(mermaidTimer);
+      mermaidTimer = setTimeout(async () => {
+        const proseContainer = document.querySelector(".prose");
+        if (proseContainer) {
+          const mermaidElements = proseContainer.querySelectorAll(".mermaid");
+          if (mermaidElements.length > 0) {
+            try {
+              const mermaid = (await import("mermaid")).default;
+              mermaid.initialize({
+                startOnLoad: false,
+                theme: "dark",
+                securityLevel: "loose",
+                fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+                flowchart: {
+                  useMaxWidth: false,
+                  htmlLabels: true,
+                  curve: "basis",
+                },
+                themeVariables: {
+                  darkMode: true,
+                  background: "#0b1324",
+                  fontFamily: "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+                },
+              });
+              await mermaid.run({
+                nodes: Array.from(mermaidElements) as HTMLElement[],
+              });
+            } catch (err) {
+              console.warn("Lỗi khi render sơ đồ Mermaid:", err);
+            }
+          }
+        }
+      }, 50);
     }
   });
 
@@ -144,6 +180,7 @@ export default function DocPage() {
     setPageTitle("DevPool");
     clearTimeout(animationTimer);
     clearTimeout(viewerTimer);
+    clearTimeout(mermaidTimer);
     if (viewerInstance) {
       viewerInstance.destroy();
     }
